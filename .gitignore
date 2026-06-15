@@ -57,6 +57,12 @@ uv.lock
 # Pre-commit
 .pre-commit-config.yaml
 
+# kicad-review engine output / scratch
+.kicad-review/
+.verify/
+.demo/
+*_statistics.rpt
+
 # KiCad backup files
 *-backups/
 fp-info-cache

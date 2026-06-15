@@ -1,0 +1,21 @@
+{
+  "name": "kicad",
+  "description": "Local Claude Code plugin that lets Claude read, understand, and REVIEW KiCad 9/10 schematics and PCBs. Wraps kicad-cli (ERC/DRC/netlist/render) plus a deterministic engineering-check engine (IPC-2221 trace sizing, decoupling, net-class audit, schematic/board parity, DFM, BOM), then renders schematic/board/3D images for Claude to read and a datasheet-grounded review. Read-only in v0 (no design-file edits). Forked from lamaalrajih/kicad-mcp (MIT).",
+  "version": "0.1.0",
+  "author": {
+    "name": "jonny",
+    "email": "artintel1120@gmail.com"
+  },
+  "license": "MIT",
+  "keywords": [
+    "kicad",
+    "eda",
+    "pcb",
+    "schematic",
+    "design-review",
+    "electronics",
+    "drc",
+    "erc",
+    "mcp"
+  ]
+}

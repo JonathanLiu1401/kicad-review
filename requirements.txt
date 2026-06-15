@@ -1,0 +1,12 @@
+# kicad-review dependencies.
+#
+# CORE (Bash/CLI + skill path — the primary way Claude Code uses this plugin):
+sexpdata>=1.0          # .kicad_pcb / netlist S-expression parsing
+#   (kicad-cli itself ships with KiCad 9/10 — not a pip dependency.)
+#
+# OPTIONAL (only needed to run the MCP server, lib/mcp via main.py):
+fastmcp>=2.0           # the server framework the forked kicad_mcp package uses
+mcp[cli]>=1.0.0        # MCP SDK
+#
+# OPTIONAL (test suite):
+pytest>=7.0
