@@ -3,8 +3,6 @@ from pathlib import Path
 import re
 import sys
 
-import pytest
-
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
@@ -405,10 +403,6 @@ def test_header_helpers_agree_when_no_info():
 # This test asserts the CORRECT/consistent behavior and is expected to FAIL
 # against the current implementation, hence xfail(strict=True).
 # --------------------------------------------------------------------------- #
-@pytest.mark.xfail(
-    reason="to_markdown summary header omits INFO while total counts it",
-    strict=True,
-)
 def test_markdown_header_counts_sum_to_total_includes_info():
     findings = [
         Finding(id="b", severity=Severity.BLOCKER, domain=Domain.ELECTRICAL, title="t-block"),

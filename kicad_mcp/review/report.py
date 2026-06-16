@@ -109,7 +109,7 @@ def to_markdown(findings: list[Finding], meta: dict | None = None) -> str:
         "**Findings:** "
         + ", ".join(
             f"{_SEV_ICON.get(s, '')} {sev.get(s, 0)} {s}"
-            for s in ("blocker", "major", "minor", "nit")
+            for s in ("blocker", "major", "minor", "nit", "info")
             if sev.get(s)
         )
         + f"  (total {counts['total']})\n"

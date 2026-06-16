@@ -189,6 +189,9 @@ class ReviewEngine:
             },
             "scope": scope,
         }
+        # discover datasheets through _stage so a glob/permission error degrades to an
+        # INFO finding instead of crashing the finished review
+        datasheets = self._stage("datasheet discovery", self._find_datasheets) or []
         findings = sort_findings(self._findings)
         report_md = to_markdown(findings, meta)
         report_json = to_json(findings, meta)
@@ -206,7 +209,7 @@ class ReviewEngine:
             "meta": meta,
             "findings": [f.to_dict() for f in findings],
             "images": images,
-            "datasheets": self._find_datasheets(),
+            "datasheets": datasheets,
             "rubric": _RUBRIC,
             "report_markdown_path": str(md_path) if md_path else None,
             "report_json_path": str(json_path) if json_path else None,

@@ -161,11 +161,6 @@ def test_mcp_tools_register():
 # CONFIRMED BUGS (strict xfail until fixed)
 # --------------------------------------------------------------------------- #
 @requires_board
-@pytest.mark.xfail(
-    reason="bug #2: engine._find_datasheets is called outside _stage, so an OSError "
-    "while globbing parent dirs crashes the already-finished review",
-    strict=True,
-)
 def test_datasheet_discovery_crash_does_not_discard_review(monkeypatch):
     def _boom(self):
         raise OSError("simulated permission error while globbing datasheets")
@@ -177,11 +172,6 @@ def test_datasheet_discovery_crash_does_not_discard_review(monkeypatch):
     assert isinstance(eng.review(scope="all", render=False), dict)
 
 
-@pytest.mark.xfail(
-    reason="bug #6: MCP _safe catches only KiCadError, so TimeoutExpired/JSONDecodeError "
-    "escape the tool instead of becoming a structured {'error': ...}",
-    strict=True,
-)
 def test_mcp_safe_catches_non_kicad_errors():
     pytest.importorskip("fastmcp")
     from kicad_mcp.tools.review_tools import _safe

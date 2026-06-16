@@ -234,10 +234,6 @@ def test_discover_project_excludes_autosave_without_pro(tmp_path):
     assert "_autosave" not in proj.sch.name
 
 
-@pytest.mark.xfail(
-    reason="discover_project silently picks pros[0] for ambiguous dirs",
-    strict=False,
-)
 def test_discover_project_ambiguous_two_projects(tmp_path):
     """A dir with TWO complete projects SHOULD flag ambiguity, but currently
     just sorts and grabs ``pros[0]`` (alpha) with no warning."""
@@ -322,10 +318,6 @@ def test_render_3d_requires_pcb(tmp_path):
 # CONFIRMED BLOCKER BUG: stale-artifact read
 # --------------------------------------------------------------------------- #
 @requires_cli
-@pytest.mark.xfail(
-    reason="BLOCKER: stale-artifact read -- runner returns a prior run's file when kicad-cli fails",
-    strict=True,
-)
 def test_run_erc_raises_on_cli_failure_does_not_read_stale(tmp_path):
     """A broken schematic makes kicad-cli exit non-zero WITHOUT overwriting the
     pre-existing ``erc.json``.

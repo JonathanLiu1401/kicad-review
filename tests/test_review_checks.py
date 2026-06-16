@@ -443,10 +443,6 @@ def test_decoupling_no_cap_at_all_positive_control():
     assert any(f.id == "decap-missing-U1-3.3V" for f in out), out
 
 
-@pytest.mark.xfail(
-    reason="bug: decoupling treats any ref starting with 'C' (CONN1/CR1) as a bypass cap",
-    strict=True,
-)
 @pytest.mark.parametrize("nonsense_ref", ["CONN1", "CR1"])
 def test_decoupling_connector_or_crystal_not_a_cap(nonsense_ref):
     """CORRECT: a connector (CONN1) / crystal (CR1) is NOT a decoupling cap, so an IC
@@ -463,11 +459,6 @@ def test_decoupling_connector_or_crystal_not_a_cap(nonsense_ref):
 # --------------------------------------------------------------------------- #
 # CONFIRMED BUG 2: decoupling judged per-NET, not per-IC-pin
 # --------------------------------------------------------------------------- #
-@pytest.mark.xfail(
-    reason="bug: one cap anywhere on a shared rail suppresses decap-missing for every "
-    "IC on that rail, even ICs far from the only cap (per-net not per-pin)",
-    strict=True,
-)
 def test_decoupling_shared_rail_far_ics_flagged():
     """One rail 3.3V with U1, U2, U3 (all power_in) and a single C1 next to U1.
 
@@ -563,10 +554,6 @@ def test_check_erc_empty_is_keyerror_safe():
 # --------------------------------------------------------------------------- #
 # CONFIRMED BUG 3 (ERC half): excluded violations re-reported
 # --------------------------------------------------------------------------- #
-@pytest.mark.xfail(
-    reason="bug: ERC violations flagged excluded=true (user-suppressed) are re-reported",
-    strict=True,
-)
 def test_check_erc_excluded_violation_not_reported():
     """CORRECT: an ERC item the user explicitly excluded should produce 0 findings.
     CURRENT: ``check_erc`` ignores the ``excluded`` flag and re-reports it."""
@@ -611,10 +598,6 @@ def test_check_drc_empty_is_keyerror_safe():
 # --------------------------------------------------------------------------- #
 # CONFIRMED BUG 3 (DRC half): excluded violations re-reported
 # --------------------------------------------------------------------------- #
-@pytest.mark.xfail(
-    reason="bug: DRC violations flagged excluded=true (user-suppressed) are re-reported",
-    strict=True,
-)
 def test_check_drc_excluded_violation_not_reported():
     """CORRECT: a clearance violation the user excluded should produce 0 findings.
     CURRENT: ``check_drc`` ignores ``excluded`` and re-reports it as a MAJOR."""
@@ -772,12 +755,6 @@ def test_inner_layer_overcurrent_positive_control():
     assert any(f.id == "trace-12V" and f.severity is Severity.MAJOR for f in out), out
 
 
-@pytest.mark.xfail(
-    reason="bug: check_trace_currents hardcodes external=True (k=0.048), so an inner-layer "
-    "(In1.Cu) track is judged with outer-layer ampacity and an undersized inner trace is "
-    "not flagged",
-    strict=True,
-)
 def test_inner_layer_undersized_flagged():
     """CORRECT: a 0.5 mm track on In1.Cu carrying 1.07 A is undersized (inner k=0.024 ->
     needs ~0.86 mm) and should be a MAJOR.

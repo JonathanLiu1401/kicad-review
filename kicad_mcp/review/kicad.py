@@ -92,6 +92,16 @@ def _run(args: list[str], timeout: int = DEFAULT_TIMEOUT) -> subprocess.Complete
     return subprocess.run(args, capture_output=True, text=True, timeout=timeout)  # nosec B603
 
 
+def _run_to_file(args: list[str], dest: Path, timeout: int, what: str) -> None:
+    """Produce ``dest`` via kicad-cli. Clear any stale file first and fail loudly on a
+    nonzero exit, so a previous run's artifact is never returned silently."""
+    dest = Path(dest)
+    dest.unlink(missing_ok=True)
+    r = _run(args, timeout=timeout)
+    if r.returncode != 0 or not dest.is_file():
+        raise KiCadError(f"{what} failed (exit {r.returncode}): {(r.stderr or r.stdout).strip()}")
+
+
 # --------------------------------------------------------------------------- #
 # project discovery
 # --------------------------------------------------------------------------- #
@@ -127,6 +137,11 @@ def discover_project(path: str | os.PathLike) -> Project:
     else:
         directory = p
         pros = _real(sorted(directory.glob("*.kicad_pro")))
+        if len(pros) > 1:
+            raise KiCadError(
+                "Ambiguous project directory: multiple .kicad_pro files "
+                f"({', '.join(p.name for p in pros)}). Pass a specific file."
+            )
         if pros:
             stem = pros[0].stem
         else:
@@ -168,7 +183,7 @@ def run_erc(project: Project, out: str | None = None, timeout: int = DEFAULT_TIM
         raise KiCadError("No schematic to run ERC on.")
     cli = find_kicad_cli()
     dest = workdir(project, out) / "erc.json"
-    r = _run(
+    _run_to_file(
         [
             cli,
             "sch",
@@ -180,10 +195,10 @@ def run_erc(project: Project, out: str | None = None, timeout: int = DEFAULT_TIM
             str(dest),
             str(project.sch),
         ],
-        timeout=timeout,
+        dest,
+        timeout,
+        "ERC",
     )
-    if not dest.is_file():
-        raise KiCadError(f"ERC produced no report. stderr: {r.stderr or r.stdout}")
     return json.loads(dest.read_text(encoding="utf-8"))
 
 
@@ -201,9 +216,7 @@ def run_drc(
     if parity:
         args.append("--schematic-parity")
     args += ["--output", str(dest), str(project.pcb)]
-    r = _run(args, timeout=timeout)
-    if not dest.is_file():
-        raise KiCadError(f"DRC produced no report. stderr: {r.stderr or r.stdout}")
+    _run_to_file(args, dest, timeout, "DRC")
     return json.loads(dest.read_text(encoding="utf-8"))
 
 
@@ -214,11 +227,12 @@ def export_netlist(
         raise KiCadError("No schematic to export a netlist from.")
     cli = find_kicad_cli()
     dest = workdir(project, out) / f"{project.name}.net"
-    _run(
-        [cli, "sch", "export", "netlist", "--output", str(dest), str(project.sch)], timeout=timeout
+    _run_to_file(
+        [cli, "sch", "export", "netlist", "--output", str(dest), str(project.sch)],
+        dest,
+        timeout,
+        "netlist export",
     )
-    if not dest.is_file():
-        raise KiCadError("Netlist export produced no file.")
     return dest
 
 
@@ -227,7 +241,12 @@ def export_bom(project: Project, out: str | None = None, timeout: int = DEFAULT_
         raise KiCadError("No schematic to export a BOM from.")
     cli = find_kicad_cli()
     dest = workdir(project, out) / f"{project.name}-bom.csv"
-    _run([cli, "sch", "export", "bom", "--output", str(dest), str(project.sch)], timeout=timeout)
+    _run_to_file(
+        [cli, "sch", "export", "bom", "--output", str(dest), str(project.sch)],
+        dest,
+        timeout,
+        "BOM export",
+    )
     return dest
 
 
@@ -241,9 +260,12 @@ def render_schematic_pdf(
         raise KiCadError("No schematic to render.")
     cli = find_kicad_cli()
     dest = workdir(project, out) / f"{project.name}-sch.pdf"
-    _run([cli, "sch", "export", "pdf", "--output", str(dest), str(project.sch)], timeout=timeout)
-    if not dest.is_file():
-        raise KiCadError("Schematic PDF render produced no file.")
+    _run_to_file(
+        [cli, "sch", "export", "pdf", "--output", str(dest), str(project.sch)],
+        dest,
+        timeout,
+        "schematic render",
+    )
     return dest
 
 
@@ -268,7 +290,7 @@ def render_board_pdf(
     cli = find_kicad_cli()
     lyrs = layers or BOARD_PRESETS.get(preset, BOARD_PRESETS["all"])
     dest = workdir(project, out) / f"{project.name}-pcb-{preset}.pdf"
-    _run(
+    _run_to_file(
         [
             cli,
             "pcb",
@@ -280,10 +302,10 @@ def render_board_pdf(
             str(dest),
             str(project.pcb),
         ],
-        timeout=timeout,
+        dest,
+        timeout,
+        "board render",
     )
-    if not dest.is_file():
-        raise KiCadError("Board PDF render produced no file.")
     return dest
 
 
@@ -298,7 +320,5 @@ def render_3d(
     if side == "bottom":
         args += ["--side", "bottom"]
     args.append(str(project.pcb))
-    _run(args, timeout=timeout)
-    if not dest.is_file():
-        raise KiCadError("3D render produced no file.")
+    _run_to_file(args, dest, timeout, "3D render")
     return dest

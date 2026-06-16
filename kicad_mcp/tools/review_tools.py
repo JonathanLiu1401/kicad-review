@@ -15,7 +15,6 @@ from fastmcp import FastMCP
 
 from kicad_mcp.review import ReviewEngine
 from kicad_mcp.review import kicad as _kicad
-from kicad_mcp.review.kicad import KiCadError
 from kicad_mcp.review.parse import parse_board, parse_pro
 
 
@@ -28,15 +27,15 @@ def _parse_currents(currents: dict | None) -> dict:
 
 
 def _safe(fn):
-    """Return a structured ``{"error": ...}`` instead of raising KiCadError, so the
-    MCP surface matches the CLI's clean-error contract."""
+    """Return a structured ``{"error": ...}`` for ANY failure, so the MCP surface
+    matches the CLI's clean-error contract (not just KiCadError)."""
 
     @functools.wraps(fn)
     def wrapper(*a, **k):
         try:
             return fn(*a, **k)
-        except KiCadError as e:
-            return {"error": str(e)}
+        except Exception as e:  # noqa: BLE001 - every failure -> structured error, like the CLI
+            return {"error": f"{type(e).__name__}: {e}"}
 
     return wrapper
 

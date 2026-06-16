@@ -96,7 +96,8 @@ def _erc_violations(erc: dict) -> list[dict]:
     for s in erc.get("sheets", []) or []:
         out += s.get("violations", []) or []
     out += erc.get("violations", []) or []
-    return out
+    # drop user-excluded (suppressed) violations — re-reporting them is wrong
+    return [v for v in out if not v.get("excluded")]
 
 
 def check_erc(erc: dict) -> list[Finding]:
@@ -181,7 +182,7 @@ def check_erc_suppressions(pro: ProjectSettings | None, erc: dict) -> list[Findi
 
 def check_drc(drc: dict) -> list[Finding]:
     findings: list[Finding] = []
-    viol = drc.get("violations", []) or []
+    viol = [v for v in (drc.get("violations", []) or []) if not v.get("excluded")]
     unconnected = drc.get("unconnected_items", []) or []
     parity = drc.get("schematic_parity", []) or []
 
@@ -303,19 +304,22 @@ def check_trace_currents(
         if t.net < 0 or t.width <= 0:
             continue
         segs_by_net[t.net].append(t)
-    min_w: dict[int, float] = {}
+    # thinnest sustained (width, layer) per net id (ignoring short fanout stubs)
+    min_seg: dict[int, tuple[float, str]] = {}
     for nid, segs in segs_by_net.items():
-        sustained = [t.width for t in segs if t.length >= _MIN_SUSTAINED_LEN]
-        min_w[nid] = min(sustained) if sustained else min(t.width for t in segs)
+        sustained = [(t.width, t.layer) for t in segs if t.length >= _MIN_SUSTAINED_LEN]
+        pool = sustained or [(t.width, t.layer) for t in segs]
+        min_seg[nid] = min(pool, key=lambda wl: wl[0])
 
-    external = True  # outer-layer assumption; conservative for capacity
     poured = set(getattr(board, "poured_nets", set()))
-    for nid, w in sorted(min_w.items(), key=lambda kv: kv[1]):
+    for nid, (w, layer) in sorted(min_seg.items(), key=lambda kv: kv[1][0]):
         name = board.net_name(nid)
         if is_ground(name):
             continue  # ground handled separately
         if not (is_power(name) or name.upper() in power_names):
             continue  # signals not current-limited here
+        # inner layers (In1.Cu / In2.Cu) dissipate less heat -> IPC k=0.024, not 0.048
+        external = not str(layer).startswith("In")
         cap = ipc2221_capacity_a(w, dT_c=dT_c, copper_oz=board.copper_oz, external=external)
         is_poured = name in poured
         spec = current_specs.get(name.upper())
@@ -385,6 +389,10 @@ def check_trace_currents(
 # --------------------------------------------------------------------------- #
 # decoupling
 # --------------------------------------------------------------------------- #
+_DECAP_NEAR_MM = 5.0  # a bypass cap within this is local to the IC pin -> fine
+_DECAP_FAR_MM = 30.0  # 5..30 mm: present-but-distant (MINOR); beyond -> effectively undecoupled
+
+
 def check_decoupling(netlist: Netlist, board: Board | None = None) -> list[Finding]:
     """Flag IC power-input nets that lack a bypass capacitor.
 
@@ -412,7 +420,10 @@ def check_decoupling(netlist: Netlist, board: Board | None = None) -> list[Findi
 
     for ic in sorted(ic_power_nets):
         for net in sorted(ic_power_nets[ic]):
-            caps_on_net = [nd["ref"] for nd in net_nodes.get(net, []) if nd["ref"].startswith("C")]
+            # a real bypass cap is C followed by a digit (excludes CONN*, CR* crystals)
+            caps_on_net = [
+                nd["ref"] for nd in net_nodes.get(net, []) if re.fullmatch(r"C\d.*", nd["ref"])
+            ]
             if not caps_on_net:
                 findings.append(
                     Finding(
@@ -427,29 +438,51 @@ def check_decoupling(netlist: Netlist, board: Board | None = None) -> list[Findi
                         check="decoupling",
                     )
                 )
-            elif board and ic in pos:
-                # nearest cap distance
-                dists = []
-                for c in caps_on_net:
-                    if c in pos:
-                        dx, dy = pos[ic][0] - pos[c][0], pos[ic][1] - pos[c][1]
-                        dists.append(math.hypot(dx, dy))
-                if dists and min(dists) > 5.0:
-                    findings.append(
-                        Finding(
-                            id=f"decap-far-{ic}-{net}",
-                            severity=Severity.MINOR,
-                            domain=Domain.POWER_THERMAL,
-                            title=f"{ic}: bypass cap on '{net}' is {min(dists):.1f} mm away",
-                            detail=f"Nearest decoupling cap ({', '.join(caps_on_net)}) on '{net}' is "
-                            f"{min(dists):.1f} mm from {ic}. Bypass caps should sit within a "
-                            "couple mm of the pin to be effective at high frequency.",
-                            recommendation=f"Move a bypass cap on '{net}' adjacent to {ic}'s power pin.",
-                            location={"refdes": ic, "net": net},
-                            evidence="netlist + board coords",
-                            check="decoupling",
-                        )
+                continue
+            # caps exist; judge by distance to THIS ic's pin (per-pin, not per-net)
+            if not (board and ic in pos):
+                continue  # no coords to measure -> assume the net cap suffices
+            dists = [
+                math.hypot(pos[ic][0] - pos[c][0], pos[ic][1] - pos[c][1])
+                for c in caps_on_net
+                if c in pos
+            ]
+            if not dists:
+                continue  # caps exist on the net but none are placed -> cannot measure
+            nearest = min(dists)
+            if nearest <= _DECAP_NEAR_MM:
+                continue  # a local bypass cap is present -> fine
+            if nearest <= _DECAP_FAR_MM:
+                findings.append(
+                    Finding(
+                        id=f"decap-far-{ic}-{net}",
+                        severity=Severity.MINOR,
+                        domain=Domain.POWER_THERMAL,
+                        title=f"{ic}: bypass cap on '{net}' is {nearest:.1f} mm away",
+                        detail=f"Nearest decoupling cap on '{net}' is {nearest:.1f} mm from {ic}. "
+                        "Bypass caps should sit within a couple mm of the pin to work at HF.",
+                        recommendation=f"Move a bypass cap on '{net}' adjacent to {ic}'s power pin.",
+                        location={"refdes": ic, "net": net},
+                        evidence="netlist + board coords",
+                        check="decoupling",
                     )
+                )
+            else:
+                findings.append(
+                    Finding(
+                        id=f"decap-missing-{ic}-{net}",
+                        severity=Severity.MAJOR,
+                        domain=Domain.POWER_THERMAL,
+                        title=f"{ic}: no local bypass cap on '{net}' (nearest {nearest:.1f} mm away)",
+                        detail=f"The nearest cap on '{net}' is {nearest:.1f} mm from {ic} — far too "
+                        "distant to decouple this pin; the IC is effectively undecoupled.",
+                        recommendation=f"Add a 100 nF (+ bulk) cap on '{net}' within a couple mm of "
+                        f"{ic}'s power pin.",
+                        location={"refdes": ic, "net": net},
+                        evidence="netlist + board coords",
+                        check="decoupling",
+                    )
+                )
     return findings
 
 
