@@ -123,7 +123,37 @@ layout finding — coordinates alone are not enough.
   can mask real pin/footprint changes — skim a few before dismissing.
 - **Net names matter for `--current`.** "12V" ≠ "+12V". Copy the exact name from the report.
 
+## Editing (v1) — guarded, surgical schematic edits
+
+You can now change a component's **Value** or **Footprint association** in the schematic. These
+are *surgical, in-place* edits (only the one property string changes; the rest of the file is
+byte-identical — no full-file resave, so KiCad-10 constructs are never dropped).
+
+**Always dry-run first, show the diff, get the human's OK, then apply.** Never write the live
+schematic blindly.
+
+```
+py …\lib\kicad_review_cli.py set-value     <project> <refdes> <value>      # dry run
+py …\lib\kicad_review_cli.py set-footprint <project> <refdes> <Lib:Fp>    # dry run
+#  …add --apply to write it to the live file (only applied if ERC does not regress)
+```
+
+Workflow:
+1. **Dry-run** the edit (no `--apply`). The guard copies the project, makes the edit on the copy,
+   re-runs `kicad-cli sch erc`, and returns a unified **diff** + an **ERC error delta**.
+2. **Show the diff and the ERC delta to the user** and get explicit approval. If ERC regressed,
+   stop — do not apply.
+3. **Apply** with `--apply` only after approval. The write is atomic and only happens if ERC did
+   not regress.
+
+(MCP equivalents: `kicad_set_value` / `kicad_set_footprint`, both dry-run unless `apply=True`.)
+
+**Still out of scope (v1):** placing new symbols + auto-wiring (connectivity is geometric — the
+GUI or a connectivity-aware step is needed), editing `.kicad_sym`/`.kicad_mod` library geometry,
+and any PCB layout. Use `inspect`/`review` to find *what* to change; use the GUI for wiring.
+
 ## Scope & roadmap
 
-v0 (now): read + review only. v1 (planned): guarded, human-approved edits — propose → diff →
-approve → apply, with ERC/DRC re-run after each edit and a manufacturing-export hard-block.
+v0: read + review. **v1 (now): surgical Value/Footprint edits behind a copy→ERC→diff→approve→apply
+guard (above).** Next: a local-libs→`easyeda2kicad`-pull→AI-draft part-sourcing chain feeding a
+gated *place-symbol*; manufacturing-export hard-block.

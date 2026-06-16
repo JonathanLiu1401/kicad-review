@@ -175,6 +175,34 @@ def cmd_version(a) -> int:
     return 0
 
 
+def _print_edit(res: dict) -> None:
+    verb = "APPLIED" if res["applied"] else "DRY RUN (not written)"
+    print(f"{verb}: {res['reference']}.{res['property']}  {res['old']!r} -> {res['new']!r}")
+    if res["erc_before"] is not None and res["erc_after"] is not None:
+        tail = "  [ERC REGRESSED -- not applied]" if res["erc_regressed"] else ""
+        print(f"ERC errors: {res['erc_before']} -> {res['erc_after']}{tail}")
+    print("\n--- diff ---")
+    print(res["diff"] or "(no textual change)")
+    if not res["applied"] and not res["erc_regressed"]:
+        print("\nRe-run with --apply to write this change to the live schematic.")
+
+
+def cmd_set_value(a) -> int:
+    from kicad_mcp.edit.guard import propose_edit
+
+    proj = kicad.discover_project(a.project)
+    _print_edit(propose_edit(proj, a.reference, "Value", a.value, apply=a.apply))
+    return 0
+
+
+def cmd_set_footprint(a) -> int:
+    from kicad_mcp.edit.guard import propose_edit
+
+    proj = kicad.discover_project(a.project)
+    _print_edit(propose_edit(proj, a.reference, "Footprint", a.footprint, apply=a.apply))
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="kicad_review_cli", description=__doc__)
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -211,6 +239,22 @@ def build_parser() -> argparse.ArgumentParser:
     add_common(rd)
     rd.add_argument("--what", choices=["all", "sch", "board", "3d"], default="all")
     rd.set_defaults(func=cmd_render)
+
+    sv = sub.add_parser("set-value", help="surgically set a Value (dry run unless --apply)")
+    sv.add_argument("project", help="dir or .kicad_pro/.kicad_sch")
+    sv.add_argument("reference", help="component refdes, e.g. R1")
+    sv.add_argument("value", help="new Value")
+    sv.add_argument("--apply", action="store_true", help="write to the live schematic")
+    sv.set_defaults(func=cmd_set_value)
+
+    sf = sub.add_parser(
+        "set-footprint", help="surgically set a Footprint association (dry run unless --apply)"
+    )
+    sf.add_argument("project", help="dir or .kicad_pro/.kicad_sch")
+    sf.add_argument("reference", help="component refdes, e.g. R1")
+    sf.add_argument("footprint", help="new Lib:Footprint")
+    sf.add_argument("--apply", action="store_true", help="write to the live schematic")
+    sf.set_defaults(func=cmd_set_footprint)
 
     v = sub.add_parser("version", help="show kicad-cli + engine versions")
     v.set_defaults(func=cmd_version)

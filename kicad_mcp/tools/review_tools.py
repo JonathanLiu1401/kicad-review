@@ -146,3 +146,32 @@ def register_review_tools(mcp: FastMCP) -> None:
         if what in ("all", "3d") and proj.pcb:
             images.append(str(_kicad.render_3d(proj)))
         return {"images": images, "note": "Read each image — they cannot be seen by the tool."}
+
+    @mcp.tool()
+    @_safe
+    def kicad_set_value(project_path: str, reference: str, value: str, apply: bool = False) -> dict:
+        """Surgically set a component's Value in the schematic, in place (byte-clean —
+        only that one property string changes; no full-file resave, so KiCad-10 tokens
+        are never dropped).
+
+        DRY RUN by default (apply=False): returns a unified ``diff`` + ERC error delta
+        and does NOT touch the live file. Show the diff to the human, get approval, then
+        call again with apply=True (it writes only if ERC did not regress).
+        """
+        from kicad_mcp.edit.guard import propose_edit
+
+        proj = _kicad.discover_project(project_path)
+        return propose_edit(proj, reference, "Value", value, apply=apply)
+
+    @mcp.tool()
+    @_safe
+    def kicad_set_footprint(
+        project_path: str, reference: str, footprint: str, apply: bool = False
+    ) -> dict:
+        """Surgically set a component's Footprint association (the ``Lib:Footprint``
+        string) in the schematic. DRY RUN by default; review the ``diff`` with the human,
+        then call with apply=True (writes only if ERC did not regress)."""
+        from kicad_mcp.edit.guard import propose_edit
+
+        proj = _kicad.discover_project(project_path)
+        return propose_edit(proj, reference, "Footprint", footprint, apply=apply)
