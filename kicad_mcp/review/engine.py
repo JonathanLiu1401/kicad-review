@@ -11,11 +11,7 @@ to an INFO finding instead of killing the whole review.
 
 from __future__ import annotations
 
-import traceback
-from pathlib import Path
-
-from . import checks
-from . import kicad
+from . import checks, kicad
 from .parse import parse_board, parse_netlist, parse_pro
 from .report import Domain, Finding, Severity, sort_findings, to_json, to_markdown
 
@@ -36,8 +32,7 @@ Do NOT invent measurements — cite the deterministic findings or what you can s
 
 
 class ReviewEngine:
-    def __init__(self, project_path, out: str | None = None,
-                 current_specs: dict | None = None):
+    def __init__(self, project_path, out: str | None = None, current_specs: dict | None = None):
         self.project = kicad.discover_project(project_path)
         self.out = out
         self.current_specs = current_specs or {}
@@ -50,13 +45,18 @@ class ReviewEngine:
         try:
             return fn()
         except Exception as e:  # noqa: BLE001 - deliberate: never let one stage kill the review
-            self._findings.append(Finding(
-                id=f"stage-fail-{label}", severity=Severity.INFO, domain=Domain.HYGIENE,
-                title=f"Could not complete '{label}'",
-                detail=f"{type(e).__name__}: {e}",
-                recommendation="Run the underlying kicad-cli command manually to diagnose.",
-                evidence="engine stage", check="engine",
-            ))
+            self._findings.append(
+                Finding(
+                    id=f"stage-fail-{label}",
+                    severity=Severity.INFO,
+                    domain=Domain.HYGIENE,
+                    title=f"Could not complete '{label}'",
+                    detail=f"{type(e).__name__}: {e}",
+                    recommendation="Run the underlying kicad-cli command manually to diagnose.",
+                    evidence="engine stage",
+                    check="engine",
+                )
+            )
             return None
 
     # -- datasheet discovery --------------------------------------------- #
@@ -81,11 +81,11 @@ class ReviewEngine:
     # -- main ------------------------------------------------------------- #
     VALID_SCOPES = ("all", "schematic", "layout", "pcb")
 
-    def review(self, scope: str = "all", render: bool = True,
-               timeout: int = kicad.DEFAULT_TIMEOUT) -> dict:
+    def review(
+        self, scope: str = "all", render: bool = True, timeout: int = kicad.DEFAULT_TIMEOUT
+    ) -> dict:
         if scope not in self.VALID_SCOPES:
-            raise kicad.KiCadError(
-                f"unknown scope {scope!r}; expected one of {self.VALID_SCOPES}")
+            raise kicad.KiCadError(f"unknown scope {scope!r}; expected one of {self.VALID_SCOPES}")
         proj = self.project
         do_sch = scope in ("all", "schematic") and proj.sch is not None
         do_pcb = scope in ("all", "layout", "pcb") and proj.pcb is not None
@@ -99,10 +99,15 @@ class ReviewEngine:
             erc = self._stage("ERC", lambda: kicad.run_erc(proj, self.out, timeout))
             if erc is not None:
                 self._findings += self._stage("ERC triage", lambda: checks.check_erc(erc)) or []
-                self._findings += self._stage(
-                    "ERC suppression audit",
-                    lambda: checks.check_erc_suppressions(pro, erc)) or []
-            netpath = self._stage("netlist export", lambda: kicad.export_netlist(proj, self.out, timeout))
+                self._findings += (
+                    self._stage(
+                        "ERC suppression audit", lambda: checks.check_erc_suppressions(pro, erc)
+                    )
+                    or []
+                )
+            netpath = self._stage(
+                "netlist export", lambda: kicad.export_netlist(proj, self.out, timeout)
+            )
             if netpath:
                 netlist = self._stage("parse netlist", lambda: parse_netlist(netpath))
 
@@ -116,7 +121,9 @@ class ReviewEngine:
             board = self._stage("parse .kicad_pcb", lambda: parse_board(proj.pcb))
 
         # --- cross-cutting checks ---
-        self._findings += self._stage("net-class audit", lambda: checks.check_net_classes(pro)) or []
+        self._findings += (
+            self._stage("net-class audit", lambda: checks.check_net_classes(pro)) or []
+        )
         if board is not None:
             # nets that touch a power pin (any layer) — authoritative power rails,
             # used in addition to the name heuristic so auto-named rails aren't missed.
@@ -125,40 +132,61 @@ class ReviewEngine:
                 for n in netlist.nets:
                     if any("power" in (nd.get("type") or "") for nd in n["nodes"]):
                         power_nets.add(n["name"])
-            self._findings += self._stage(
-                "trace currents",
-                lambda: checks.check_trace_currents(
-                    board, self.current_specs, power_nets=power_nets)) or []
+            self._findings += (
+                self._stage(
+                    "trace currents",
+                    lambda: checks.check_trace_currents(
+                        board, self.current_specs, power_nets=power_nets
+                    ),
+                )
+                or []
+            )
         if netlist is not None:
-            self._findings += self._stage(
-                "decoupling", lambda: checks.check_decoupling(netlist, board)) or []
+            self._findings += (
+                self._stage("decoupling", lambda: checks.check_decoupling(netlist, board)) or []
+            )
             self._findings += self._stage("BOM hygiene", lambda: checks.check_bom(netlist)) or []
 
         # --- renders (the images the skill will Read) ---
         images: list[str] = []
         if render:
             if do_sch:
-                p = self._stage("render schematic", lambda: kicad.render_schematic_pdf(proj, self.out, timeout))
+                p = self._stage(
+                    "render schematic", lambda: kicad.render_schematic_pdf(proj, self.out, timeout)
+                )
                 if p:
                     images.append(str(p))
             if do_pcb:
                 for preset in ("front", "back", "copper"):
-                    p = self._stage(f"render board {preset}",
-                                    lambda preset=preset: kicad.render_board_pdf(proj, preset, None, self.out, timeout))
+                    p = self._stage(
+                        f"render board {preset}",
+                        lambda preset=preset: kicad.render_board_pdf(
+                            proj, preset, None, self.out, timeout
+                        ),
+                    )
                     if p:
                         images.append(str(p))
-                p3d = self._stage("render 3D", lambda: kicad.render_3d(proj, self.out, "top", timeout))
+                p3d = self._stage(
+                    "render 3D", lambda: kicad.render_3d(proj, self.out, "top", timeout)
+                )
                 if p3d:
                     images.append(str(p3d))
 
         # --- assemble + write ---
-        kver = (erc or {}).get("kicad_version") or (drc or {}).get("kicad_version") \
-            or self._stage("cli version", lambda: kicad.cli_version()) or "?"
+        kver = (
+            (erc or {}).get("kicad_version")
+            or (drc or {}).get("kicad_version")
+            or self._stage("cli version", lambda: kicad.cli_version())
+            or "?"
+        )
         meta = {
             "project": proj.name,
             "kicad_version": kver,
-            "files": {k: str(v) for k, v in
-                      {"sch": proj.sch, "pcb": proj.pcb, "pro": proj.pro}.items() if v},
+            "files": {
+                k: str(v)
+                for k, v in {"sch": proj.sch, "pcb": proj.pcb, "pro": proj.pro}.items()
+                if v
+            },
             "scope": scope,
         }
         findings = sort_findings(self._findings)

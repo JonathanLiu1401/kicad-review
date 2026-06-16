@@ -21,11 +21,11 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import contextlib
 import io
 import json
-import os
-import sys
 from pathlib import Path
+import sys
 
 # make the plugin package importable no matter the CWD
 _ROOT = Path(__file__).resolve().parent.parent
@@ -37,8 +37,7 @@ try:
 except Exception:  # pragma: no cover
     sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
 
-from kicad_mcp.review import ReviewEngine  # noqa: E402
-from kicad_mcp.review import kicad  # noqa: E402
+from kicad_mcp.review import ReviewEngine, kicad  # noqa: E402
 from kicad_mcp.review.parse import parse_board, parse_pro  # noqa: E402
 
 
@@ -47,10 +46,8 @@ def _parse_currents(pairs: list[str]) -> dict:
     for p in pairs or []:
         if "=" in p:
             net, amps = p.split("=", 1)
-            try:
+            with contextlib.suppress(ValueError):
                 out[net.strip()] = float(amps)
-            except ValueError:
-                pass
     return out
 
 
@@ -87,14 +84,17 @@ def cmd_inspect(a) -> int:
             pro = parse_pro(proj.pro)
             print(f"\nnet classes ({len(pro.net_classes)}):")
             for c in pro.net_classes:
-                print(f"  - {c.get('name')}: track={c.get('track_width')} "
-                      f"clearance={c.get('clearance')} via={c.get('via_diameter')}/{c.get('via_drill')}")
+                print(
+                    f"  - {c.get('name')}: track={c.get('track_width')} "
+                    f"clearance={c.get('clearance')} via={c.get('via_diameter')}/{c.get('via_drill')}"
+                )
         except Exception as e:  # noqa: BLE001
             print(f"  (could not read net classes: {e})")
     if proj.pcb:
         try:
             b = parse_board(proj.pcb)
             from collections import Counter
+
             w = Counter(round(t.width, 3) for t in b.tracks if t.width > 0)
             print(f"\nboard: {b.copper_layers} copper layers, ~{b.copper_oz:.0f} oz outer")
             print(f"  tracks={len(b.tracks)} vias={len(b.vias)} footprints={len(b.footprints)}")
@@ -112,6 +112,7 @@ def cmd_erc(a) -> int:
         viol += s.get("violations", []) or []
     viol += erc.get("violations", []) or []
     from collections import Counter
+
     print(f"ERC on {proj.name}: {len(viol)} violations")
     print("by severity:", dict(Counter(v.get("severity") for v in viol)))
     for t, c in Counter(v.get("type") for v in viol).most_common():
@@ -126,11 +127,14 @@ def cmd_drc(a) -> int:
     proj = kicad.discover_project(a.project)
     drc = kicad.run_drc(proj, a.out, parity=True)
     from collections import Counter
+
     viol = drc.get("violations", []) or []
     parity = drc.get("schematic_parity", []) or []
     unconn = drc.get("unconnected_items", []) or []
-    print(f"DRC on {proj.name}: {len(viol)} violations, {len(unconn)} unconnected, "
-          f"{len(parity)} parity issues")
+    print(
+        f"DRC on {proj.name}: {len(viol)} violations, {len(unconn)} unconnected, "
+        f"{len(parity)} parity issues"
+    )
     for t, c in Counter(v.get("type") for v in viol).most_common():
         print(f"  {c:4d}  {t}")
     if parity:
@@ -183,8 +187,13 @@ def build_parser() -> argparse.ArgumentParser:
     add_common(r)
     r.add_argument("--scope", choices=["all", "schematic", "layout", "pcb"], default="all")
     r.add_argument("--no-render", action="store_true", help="skip image rendering")
-    r.add_argument("--current", action="append", default=[],
-                   metavar="NET=AMPS", help="expected current per net (repeatable)")
+    r.add_argument(
+        "--current",
+        action="append",
+        default=[],
+        metavar="NET=AMPS",
+        help="expected current per net (repeatable)",
+    )
     r.add_argument("--json", action="store_true", help="emit the evidence package as JSON")
     r.set_defaults(func=cmd_review)
 

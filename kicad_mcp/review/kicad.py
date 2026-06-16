@@ -8,15 +8,17 @@ place and easy to test.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 import glob
 import json
 import os
+from pathlib import Path
 import platform
 import re
+
+# subprocess is only ever called with constructed arg lists (never shell=True)
 import shutil
-import subprocess
-from dataclasses import dataclass
-from pathlib import Path
+import subprocess  # nosec B404
 
 DEFAULT_TIMEOUT = 300
 
@@ -75,20 +77,19 @@ def find_kicad_cli() -> str:
         if Path(cand).is_file():
             return cand
     raise KiCadError(
-        "kicad-cli not found. Install KiCad 9+ or set KICAD_CLI_PATH to the "
-        "kicad-cli executable."
+        "kicad-cli not found. Install KiCad 9+ or set KICAD_CLI_PATH to the kicad-cli executable."
     )
 
 
 def cli_version(cli: str | None = None) -> str:
     cli = cli or find_kicad_cli()
-    r = subprocess.run([cli, "version"], capture_output=True, text=True, timeout=30)
+    r = subprocess.run([cli, "version"], capture_output=True, text=True, timeout=30)  # nosec B603
     lines = (r.stdout or r.stderr or "").strip().splitlines()
     return lines[0] if lines else "?"
 
 
 def _run(args: list[str], timeout: int = DEFAULT_TIMEOUT) -> subprocess.CompletedProcess:
-    return subprocess.run(args, capture_output=True, text=True, timeout=timeout)
+    return subprocess.run(args, capture_output=True, text=True, timeout=timeout)  # nosec B603
 
 
 # --------------------------------------------------------------------------- #
@@ -113,6 +114,7 @@ def discover_project(path: str | os.PathLike) -> Project:
     directory containing exactly one project. Prefers files that share the
     ``.kicad_pro`` stem; otherwise falls back to the lone sch/pcb in the dir.
     """
+
     def _real(paths):
         # drop KiCad autosave/backup siblings (_autosave-*, ~*) so we never pick a
         # stale autosave as the canonical file.
@@ -137,10 +139,7 @@ def discover_project(path: str | os.PathLike) -> Project:
         if exact.is_file():
             return exact
         # ignore KiCad autosave/backup siblings
-        cands = [
-            c for c in directory.glob(f"*{ext}")
-            if not c.name.startswith(("_autosave", "~"))
-        ]
+        cands = [c for c in directory.glob(f"*{ext}") if not c.name.startswith(("_autosave", "~"))]
         return cands[0] if cands else None
 
     proj = Project(
@@ -170,8 +169,17 @@ def run_erc(project: Project, out: str | None = None, timeout: int = DEFAULT_TIM
     cli = find_kicad_cli()
     dest = workdir(project, out) / "erc.json"
     r = _run(
-        [cli, "sch", "erc", "--format", "json", "--severity-all",
-         "--output", str(dest), str(project.sch)],
+        [
+            cli,
+            "sch",
+            "erc",
+            "--format",
+            "json",
+            "--severity-all",
+            "--output",
+            str(dest),
+            str(project.sch),
+        ],
         timeout=timeout,
     )
     if not dest.is_file():
@@ -180,7 +188,9 @@ def run_erc(project: Project, out: str | None = None, timeout: int = DEFAULT_TIM
 
 
 def run_drc(
-    project: Project, out: str | None = None, parity: bool = True,
+    project: Project,
+    out: str | None = None,
+    parity: bool = True,
     timeout: int = DEFAULT_TIMEOUT,
 ) -> dict:
     if not project.pcb:
@@ -197,12 +207,16 @@ def run_drc(
     return json.loads(dest.read_text(encoding="utf-8"))
 
 
-def export_netlist(project: Project, out: str | None = None, timeout: int = DEFAULT_TIMEOUT) -> Path:
+def export_netlist(
+    project: Project, out: str | None = None, timeout: int = DEFAULT_TIMEOUT
+) -> Path:
     if not project.sch:
         raise KiCadError("No schematic to export a netlist from.")
     cli = find_kicad_cli()
     dest = workdir(project, out) / f"{project.name}.net"
-    _run([cli, "sch", "export", "netlist", "--output", str(dest), str(project.sch)], timeout=timeout)
+    _run(
+        [cli, "sch", "export", "netlist", "--output", str(dest), str(project.sch)], timeout=timeout
+    )
     if not dest.is_file():
         raise KiCadError("Netlist export produced no file.")
     return dest
@@ -220,7 +234,9 @@ def export_bom(project: Project, out: str | None = None, timeout: int = DEFAULT_
 # --------------------------------------------------------------------------- #
 # render runners (images the skill will Read)
 # --------------------------------------------------------------------------- #
-def render_schematic_pdf(project: Project, out: str | None = None, timeout: int = DEFAULT_TIMEOUT) -> Path:
+def render_schematic_pdf(
+    project: Project, out: str | None = None, timeout: int = DEFAULT_TIMEOUT
+) -> Path:
     if not project.sch:
         raise KiCadError("No schematic to render.")
     cli = find_kicad_cli()
@@ -241,8 +257,11 @@ BOARD_PRESETS: dict[str, list[str]] = {
 
 
 def render_board_pdf(
-    project: Project, preset: str = "all", layers: list[str] | None = None,
-    out: str | None = None, timeout: int = DEFAULT_TIMEOUT,
+    project: Project,
+    preset: str = "all",
+    layers: list[str] | None = None,
+    out: str | None = None,
+    timeout: int = DEFAULT_TIMEOUT,
 ) -> Path:
     if not project.pcb:
         raise KiCadError("No PCB to render.")
@@ -250,8 +269,17 @@ def render_board_pdf(
     lyrs = layers or BOARD_PRESETS.get(preset, BOARD_PRESETS["all"])
     dest = workdir(project, out) / f"{project.name}-pcb-{preset}.pdf"
     _run(
-        [cli, "pcb", "export", "pdf", "--layers", ",".join(lyrs),
-         "--output", str(dest), str(project.pcb)],
+        [
+            cli,
+            "pcb",
+            "export",
+            "pdf",
+            "--layers",
+            ",".join(lyrs),
+            "--output",
+            str(dest),
+            str(project.pcb),
+        ],
         timeout=timeout,
     )
     if not dest.is_file():
@@ -259,7 +287,9 @@ def render_board_pdf(
     return dest
 
 
-def render_3d(project: Project, out: str | None = None, side: str = "top", timeout: int = DEFAULT_TIMEOUT) -> Path:
+def render_3d(
+    project: Project, out: str | None = None, side: str = "top", timeout: int = DEFAULT_TIMEOUT
+) -> Path:
     if not project.pcb:
         raise KiCadError("No PCB to render.")
     cli = find_kicad_cli()

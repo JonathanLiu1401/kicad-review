@@ -7,20 +7,19 @@ final report is uniform regardless of source.
 
 from __future__ import annotations
 
-import dataclasses
-import json
-from dataclasses import dataclass, field, asdict
+from dataclasses import asdict, dataclass, field
 from enum import Enum
+import json
 
 
 class Severity(str, Enum):
     """Ordered worst -> least. ``rank`` drives sorting."""
 
-    BLOCKER = "blocker"   # will not work / will not build / unsafe
-    MAJOR = "major"       # likely to cause a real problem
-    MINOR = "minor"       # should fix, not urgent
-    NIT = "nit"           # style / hygiene
-    INFO = "info"         # context, not an issue
+    BLOCKER = "blocker"  # will not work / will not build / unsafe
+    MAJOR = "major"  # likely to cause a real problem
+    MINOR = "minor"  # should fix, not urgent
+    NIT = "nit"  # style / hygiene
+    INFO = "info"  # context, not an issue
 
     @property
     def rank(self) -> int:
@@ -28,12 +27,12 @@ class Severity(str, Enum):
 
 
 class Domain(str, Enum):
-    ELECTRICAL = "electrical"        # ERC, connectivity, missing drivers
+    ELECTRICAL = "electrical"  # ERC, connectivity, missing drivers
     POWER_THERMAL = "power_thermal"  # trace sizing, copper, regulators
     SIGNAL_INTEGRITY = "signal_integrity"
-    DFM = "dfm"                      # manufacturability, parity, footprints
-    BOM = "bom"                      # sourcing / part hygiene
-    HYGIENE = "hygiene"             # schematic/layout cleanliness, suppressions
+    DFM = "dfm"  # manufacturability, parity, footprints
+    BOM = "bom"  # sourcing / part hygiene
+    HYGIENE = "hygiene"  # schematic/layout cleanliness, suppressions
 
 
 @dataclass
@@ -87,7 +86,11 @@ def _summary_counts(findings: list[Finding]) -> dict:
 
 
 _SEV_ICON = {
-    "blocker": "🛑", "major": "🔴", "minor": "🟡", "nit": "⚪", "info": "ℹ️",
+    "blocker": "🛑",
+    "major": "🔴",
+    "minor": "🟡",
+    "nit": "⚪",
+    "info": "ℹ️",
 }
 
 
@@ -105,7 +108,7 @@ def to_markdown(findings: list[Finding], meta: dict | None = None) -> str:
     out.append(
         "**Findings:** "
         + ", ".join(
-            f"{_SEV_ICON.get(s,'')} {sev.get(s,0)} {s}"
+            f"{_SEV_ICON.get(s, '')} {sev.get(s, 0)} {s}"
             for s in ("blocker", "major", "minor", "nit")
             if sev.get(s)
         )
@@ -122,7 +125,7 @@ def to_markdown(findings: list[Finding], meta: dict | None = None) -> str:
         out.append(f"\n## {dom.value.replace('_', ' ').title()}\n")
         for f in [x for x in sf if x.domain == dom]:
             loc = ", ".join(f"{k}={v}" for k, v in f.location.items() if v)
-            out.append(f"### {_SEV_ICON.get(f.severity.value,'')} [{f.severity.value}] {f.title}")
+            out.append(f"### {_SEV_ICON.get(f.severity.value, '')} [{f.severity.value}] {f.title}")
             if loc:
                 out.append(f"*Location:* {loc}  ")
             if f.detail:

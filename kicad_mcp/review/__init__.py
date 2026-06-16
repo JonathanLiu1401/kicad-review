@@ -15,7 +15,7 @@ those findings with the rendered images and datasheets into a prioritized review
 -- lives in the Claude skill, not here, because only the LLM can *see* the images.
 """
 
-from .report import Finding, Severity, Domain  # noqa: F401
 from .engine import ReviewEngine  # noqa: F401
+from .report import Domain, Finding, Severity  # noqa: F401
 
 __all__ = ["Finding", "Severity", "Domain", "ReviewEngine"]

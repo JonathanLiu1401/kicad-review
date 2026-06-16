@@ -8,6 +8,7 @@ whole point of the render-and-Read loop.
 
 from __future__ import annotations
 
+import contextlib
 import functools
 
 from fastmcp import FastMCP
@@ -21,22 +22,22 @@ from kicad_mcp.review.parse import parse_board, parse_pro
 def _parse_currents(currents: dict | None) -> dict:
     out = {}
     for k, v in (currents or {}).items():
-        try:
+        with contextlib.suppress(TypeError, ValueError):
             out[k] = float(v)
-        except (TypeError, ValueError):
-            pass
     return out
 
 
 def _safe(fn):
     """Return a structured ``{"error": ...}`` instead of raising KiCadError, so the
     MCP surface matches the CLI's clean-error contract."""
+
     @functools.wraps(fn)
     def wrapper(*a, **k):
         try:
             return fn(*a, **k)
         except KiCadError as e:
             return {"error": str(e)}
+
     return wrapper
 
 
@@ -45,8 +46,9 @@ def register_review_tools(mcp: FastMCP) -> None:
 
     @mcp.tool()
     @_safe
-    def kicad_review(project_path: str, scope: str = "all", render: bool = True,
-                     currents: dict | None = None) -> dict:
+    def kicad_review(
+        project_path: str, scope: str = "all", render: bool = True, currents: dict | None = None
+    ) -> dict:
         """Run a full KiCad design review (read-only).
 
         Runs ERC/DRC (+ schematic↔board parity), audits net classes, computes
@@ -79,8 +81,11 @@ def register_review_tools(mcp: FastMCP) -> None:
         info: dict = {
             "name": proj.name,
             "dir": str(proj.dir),
-            "files": {k: str(v) for k, v in
-                      {"sch": proj.sch, "pcb": proj.pcb, "pro": proj.pro}.items() if v},
+            "files": {
+                k: str(v)
+                for k, v in {"sch": proj.sch, "pcb": proj.pcb, "pro": proj.pro}.items()
+                if v
+            },
         }
         if proj.pro:
             try:
@@ -91,6 +96,7 @@ def register_review_tools(mcp: FastMCP) -> None:
         if proj.pcb:
             try:
                 from collections import Counter
+
                 b = parse_board(proj.pcb)
                 info["board"] = {
                     "copper_layers": b.copper_layers,
@@ -98,8 +104,9 @@ def register_review_tools(mcp: FastMCP) -> None:
                     "tracks": len(b.tracks),
                     "vias": len(b.vias),
                     "footprints": len(b.footprints),
-                    "track_widths_mm": dict(sorted(Counter(
-                        round(t.width, 3) for t in b.tracks if t.width > 0).items())),
+                    "track_widths_mm": dict(
+                        sorted(Counter(round(t.width, 3) for t in b.tracks if t.width > 0).items())
+                    ),
                 }
             except Exception as e:  # noqa: BLE001
                 info["board_error"] = str(e)

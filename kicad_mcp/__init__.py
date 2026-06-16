@@ -3,6 +3,7 @@ KiCad MCP Server.
 
 A Model Context Protocol (MCP) server for KiCad electronic design automation (EDA) files.
 """
+
 # The FastMCP server is an optional import path: the review engine
 # (``kicad_mcp.review``) and the Bash CLI shim run without ``fastmcp`` installed.
 # Only pull in the server/context (which need fastmcp) when it is actually present,
@@ -21,9 +22,19 @@ __description__ = "Model Context Protocol server for KiCad on Mac, Windows, and 
 __all__ = ["__version__", "__author__", "__description__"]
 
 if _HAS_FASTMCP:
-    from .server import *  # noqa: F401,F403,E402
-    from .context import *  # noqa: F401,F403,E402
+    from .context import KiCadAppContext, kicad_lifespan
+    from .server import (
+        add_cleanup_handler,
+        create_server,
+        run_cleanup_handlers,
+        shutdown_server,
+    )
+
     __all__ += [
-        "create_server", "add_cleanup_handler", "run_cleanup_handlers",
-        "shutdown_server", "kicad_lifespan", "KiCadAppContext",
+        "create_server",
+        "add_cleanup_handler",
+        "run_cleanup_handlers",
+        "shutdown_server",
+        "kicad_lifespan",
+        "KiCadAppContext",
     ]

@@ -10,9 +10,10 @@ Read-only. We never write these files in v0.
 
 from __future__ import annotations
 
+import contextlib
+from dataclasses import dataclass, field
 import json
 import math
-from dataclasses import dataclass, field
 from pathlib import Path
 
 import sexpdata
@@ -80,12 +81,12 @@ class Footprint:
 
 @dataclass
 class Board:
-    nets: dict           # id -> name
-    tracks: list         # Track
-    vias: list           # Via
-    footprints: list     # Footprint
+    nets: dict  # id -> name
+    tracks: list  # Track
+    vias: list  # Via
+    footprints: list  # Footprint
     copper_layers: int
-    copper_oz: float     # outer copper weight estimate
+    copper_oz: float  # outer copper weight estimate
     poured_nets: set = field(default_factory=set)  # net NAMES carried by a copper zone
     raw_setup: dict = field(default_factory=dict)
 
@@ -137,7 +138,9 @@ def parse_board(pcb_path: str | Path) -> Board:
         elif h == "via":
             size = _getval(node, "size", 0.0)
             drill = _getval(node, "drill", 0.0)
-            vias.append(Via(size=float(size), drill=float(drill), net=int(_getval(node, "net", -1))))
+            vias.append(
+                Via(size=float(size), drill=float(drill), net=int(_getval(node, "net", -1)))
+            )
         elif h == "footprint":
             ref = value = ""
             for prop in _getall(node, "property"):
@@ -154,14 +157,26 @@ def parse_board(pcb_path: str | Path) -> Board:
                 if pn and len(pn) > 1:
                     fp_nets.add(int(_sym(pn[1])))
             footprints.append(
-                Footprint(ref=ref, value=value,
-                          layer=str(_getval(node, "layer", "")), x=x, y=y, nets=fp_nets)
+                Footprint(
+                    ref=ref,
+                    value=value,
+                    layer=str(_getval(node, "layer", "")),
+                    x=x,
+                    y=y,
+                    nets=fp_nets,
+                )
             )
 
     copper_layers, copper_oz = _parse_stackup(data)
-    return Board(nets=nets, tracks=tracks, vias=vias, footprints=footprints,
-                 copper_layers=copper_layers, copper_oz=copper_oz,
-                 poured_nets=poured_nets)
+    return Board(
+        nets=nets,
+        tracks=tracks,
+        vias=vias,
+        footprints=footprints,
+        copper_layers=copper_layers,
+        copper_oz=copper_oz,
+        poured_nets=poured_nets,
+    )
 
 
 def _parse_stackup(data) -> tuple[int, float]:
@@ -172,7 +187,7 @@ def _parse_stackup(data) -> tuple[int, float]:
     layers = _get(data, "layers")
     if layers:
         # count layer entries whose name ends in ".Cu"
-        names = [str(_sym(l[1])) for l in layers[1:] if isinstance(l, list) and len(l) > 1]
+        names = [str(_sym(le[1])) for le in layers[1:] if isinstance(le, list) and len(le) > 1]
         cu = [n for n in names if n.endswith(".Cu")]
         if cu:
             copper_layers = len(cu)
@@ -184,10 +199,8 @@ def _parse_stackup(data) -> tuple[int, float]:
                 if isinstance(name, str) and name.endswith(".Cu"):
                     th = _getval(lyr, "thickness")
                     if th:
-                        try:
+                        with contextlib.suppress(TypeError, ValueError):
                             copper_oz = round(float(th) / OZ_TO_MM, 2)
-                        except (TypeError, ValueError):
-                            pass
                         break
     return copper_layers, copper_oz
 
@@ -197,10 +210,10 @@ def _parse_stackup(data) -> tuple[int, float]:
 # --------------------------------------------------------------------------- #
 @dataclass
 class ProjectSettings:
-    net_classes: list           # list of dicts (name, track_width, ...)
+    net_classes: list  # list of dicts (name, track_width, ...)
     net_class_assignments: dict  # pattern/net -> class name
     design_rules: dict
-    erc_severities: dict         # rule -> severity (only overridden ones)
+    erc_severities: dict  # rule -> severity (only overridden ones)
 
 
 def parse_pro(pro_path: str | Path) -> ProjectSettings:
@@ -214,8 +227,12 @@ def parse_pro(pro_path: str | Path) -> ProjectSettings:
     rules = d.get("board", {}).get("design_settings", {}).get("rules", {})
     erc = d.get("erc", {}).get("rule_severities", {})
     overridden = {k: v for k, v in erc.items() if v in ("ignore", "warning")}
-    return ProjectSettings(net_classes=classes, net_class_assignments=assignments,
-                           design_rules=rules, erc_severities=overridden)
+    return ProjectSettings(
+        net_classes=classes,
+        net_class_assignments=assignments,
+        design_rules=rules,
+        erc_severities=overridden,
+    )
 
 
 # --------------------------------------------------------------------------- #
@@ -223,9 +240,9 @@ def parse_pro(pro_path: str | Path) -> ProjectSettings:
 # --------------------------------------------------------------------------- #
 @dataclass
 class Netlist:
-    components: list   # dicts: ref, value, footprint
-    nets: list         # dicts: name, code, nodes=[{ref, pin, type}]
-    pin_types: dict    # (libpart) -> {pin_num: type}; keyed by 'lib:part'
+    components: list  # dicts: ref, value, footprint
+    nets: list  # dicts: name, code, nodes=[{ref, pin, type}]
+    pin_types: dict  # (libpart) -> {pin_num: type}; keyed by 'lib:part'
 
 
 def parse_netlist(net_path: str | Path) -> Netlist:
@@ -236,11 +253,13 @@ def parse_netlist(net_path: str | Path) -> Netlist:
     if comps:
         for comp in _getall(comps, "comp"):
             ref = _getval(comp, "ref", "")
-            components.append({
-                "ref": ref,
-                "value": _getval(comp, "value", ""),
-                "footprint": _getval(comp, "footprint", ""),
-            })
+            components.append(
+                {
+                    "ref": ref,
+                    "value": _getval(comp, "value", ""),
+                    "footprint": _getval(comp, "footprint", ""),
+                }
+            )
 
     # libpart pin types: map "lib:part" -> {pin: type}
     pin_types: dict[str, dict] = {}
@@ -265,11 +284,13 @@ def parse_netlist(net_path: str | Path) -> Netlist:
             code = _getval(net, "code", "")
             nodes = []
             for node in _getall(net, "node"):
-                nodes.append({
-                    "ref": _getval(node, "ref", ""),
-                    "pin": str(_getval(node, "pin", "")),
-                    "type": str(_getval(node, "pintype", "")),
-                })
+                nodes.append(
+                    {
+                        "ref": _getval(node, "ref", ""),
+                        "pin": str(_getval(node, "pin", "")),
+                        "type": str(_getval(node, "pintype", "")),
+                    }
+                )
             nets.append({"name": name, "code": code, "nodes": nodes})
 
     return Netlist(components=components, nets=nets, pin_types=pin_types)

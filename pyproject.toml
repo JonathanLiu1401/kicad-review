@@ -47,6 +47,7 @@ dependencies = [
     "pandas>=2.0.0",
     "pyyaml>=6.0.0",
     "defusedxml>=0.7.0",  # Secure XML parsing
+    "sexpdata>=1.0",  # KiCad .kicad_pcb / netlist S-expression parsing (review engine)
 ]
 
 [project.urls]
