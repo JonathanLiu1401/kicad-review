@@ -36,10 +36,10 @@ jobs:
       run: uv sync --group dev
 
     - name: Lint with ruff (review layer)
-      run: uv run ruff check kicad_mcp/review kicad_mcp/tools/review_tools.py lib kicad_mcp/__init__.py tests/test_review_periph.py
+      run: uv run ruff check kicad_mcp/review kicad_mcp/tools/review_tools.py lib kicad_mcp/__init__.py tests/test_review_*.py
 
     - name: Check formatting with ruff (review layer)
-      run: uv run ruff format --check kicad_mcp/review kicad_mcp/tools/review_tools.py lib kicad_mcp/__init__.py tests/test_review_periph.py
+      run: uv run ruff format --check kicad_mcp/review kicad_mcp/tools/review_tools.py lib kicad_mcp/__init__.py tests/test_review_*.py
 
   test:
     runs-on: ${{ matrix.os }}
@@ -71,10 +71,11 @@ jobs:
       run: uv sync --group dev
 
     # The review engine's integration tests require a real KiCad install + board,
-    # which CI does not have, so they skip automatically. The unit tests (IPC-2221
-    # math, net classification, checks/parse/report on synthetic data) always run.
+    # which CI does not have, so they skip automatically. The unit tests (parse /
+    # checks / report / engine surfaces on synthetic data) always run. Confirmed bugs
+    # are encoded as strict xfails (they flip the suite red the day they are fixed).
     - name: Run tests (review layer)
-      run: uv run python -m pytest tests/test_review_periph.py -o addopts="" -v --cov=kicad_mcp/review --cov-report=xml --cov-fail-under=45
+      run: uv run python -m pytest tests/test_review_*.py -o addopts="" -v --cov=kicad_mcp/review --cov-report=xml --cov-fail-under=70
 
     - name: Upload coverage to Codecov
       uses: codecov/codecov-action@v4
