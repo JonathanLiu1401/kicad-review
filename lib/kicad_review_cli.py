@@ -284,7 +284,12 @@ def cmd_check_stock(a) -> int:
     from kicad_mcp.parts.stock import check_stock
 
     r = check_stock(a.mpn)
-    print(a.mpn)
+    verdict = (
+        f"VALID — in stock on {', '.join(r['available_on'])}"
+        if r["valid"]
+        else "NOT available on JLCPCB or DigiKey"
+    )
+    print(f"{a.mpn}: {verdict}")
     print(f"  JLCPCB:  {_fmt_jlc(r['jlcpcb'])}")
     print(f"  DigiKey: {_fmt_dk(r['digikey'])}")
     return 0
@@ -322,10 +327,7 @@ def cmd_check_bom(a) -> int:
             dk_s = f"DK {dk['stock']:,}"
         else:
             dk_s = "DK —"
-        in_stock = (jl.get("found") and jl.get("stock", 0) > 0) or (
-            dk.get("found") and dk.get("stock", 0) > 0
-        )
-        flag = "✓" if in_stock else "✗"
+        flag = "✓" if p["valid"] else "✗"  # valid = in stock on either distributor
         refs = ",".join(p["refs"][:4]) + ("…" if len(p["refs"]) > 4 else "")
         print(f"  {flag} {p['part']:<24} {jl_s:<16} {dk_s:<14} [{refs}]")
     if res["missing_mpn"]:

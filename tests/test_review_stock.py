@@ -166,17 +166,36 @@ def test_check_digikey_unconfigured(monkeypatch):
     assert "developer.digikey.com" in r["note"]
 
 
-def test_check_stock_runs_both_sources(monkeypatch):
+def test_check_stock_runs_both_and_verdict(monkeypatch):
     monkeypatch.setattr(
-        stock, "check_jlcpcb", lambda m, t=20.0: {"source": "jlcpcb", "found": True}
+        stock, "check_jlcpcb", lambda m, t=20.0: {"source": "jlcpcb", "found": True, "stock": 100}
     )
     monkeypatch.setattr(
         stock, "check_digikey", lambda m, t=20.0: {"source": "digikey", "configured": False}
     )
     r = stock.check_stock("ANYPART")
     assert r["mpn"] == "ANYPART"
-    assert r["jlcpcb"]["found"] is True
+    assert r["valid"] is True  # in stock on JLCPCB alone -> valid
+    assert r["available_on"] == ["jlcpcb"]
     assert r["digikey"]["configured"] is False
+
+
+def test_check_stock_valid_on_digikey_alone(monkeypatch):
+    # absent from JLC but in stock on DigiKey -> still valid (either distributor counts)
+    monkeypatch.setattr(stock, "check_jlcpcb", lambda m, t=20.0: {"found": False})
+    monkeypatch.setattr(stock, "check_digikey", lambda m, t=20.0: {"found": True, "stock": 5})
+    r = stock.check_stock("X")
+    assert r["valid"] is True
+    assert r["available_on"] == ["digikey"]
+
+
+def test_check_stock_invalid_when_neither_in_stock(monkeypatch):
+    # found on JLC but zero stock, absent on DigiKey -> not valid
+    monkeypatch.setattr(stock, "check_jlcpcb", lambda m, t=20.0: {"found": True, "stock": 0})
+    monkeypatch.setattr(stock, "check_digikey", lambda m, t=20.0: {"found": False})
+    r = stock.check_stock("X")
+    assert r["valid"] is False
+    assert r["available_on"] == []
 
 
 # --------------------------------------------------------------------------- #
@@ -200,13 +219,15 @@ def test_check_bom_aggregates_and_flags_missing(tmp_path, monkeypatch):
         "check_stock",
         lambda mpn, timeout=20.0: {
             "mpn": mpn,
+            "valid": True,
+            "available_on": ["jlcpcb"],
             "jlcpcb": {"found": True, "stock": 100},
             "digikey": {"configured": False},
         },
     )
     res = bom.check_bom(sch)
     assert {p["part"] for p in res["parts"]} == {"RC0603FR-0710KL", "C1525"}
-    assert all(p["jlcpcb"]["found"] for p in res["parts"])
+    assert all(p["valid"] for p in res["parts"])
     assert [m["ref"] for m in res["missing_mpn"]] == ["R2"]
 
 

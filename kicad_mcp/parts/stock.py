@@ -226,14 +226,28 @@ def check_digikey(mpn: str, timeout: float = 20.0) -> dict:
 # --------------------------------------------------------------------------- #
 # combined
 # --------------------------------------------------------------------------- #
+def _available(src: dict) -> bool:
+    """A source counts as available iff it found the exact part AND it's in stock."""
+    return bool(src.get("found")) and int(src.get("stock") or 0) > 0
+
+
 def check_stock(mpn: str, timeout: float = 20.0) -> dict:
-    """Check an MPN on JLCPCB and DigiKey in parallel; returns both, normalized.
+    """Check an MPN on JLCPCB and DigiKey in parallel; returns both, normalized, plus a
+    verdict.
 
     Each source degrades independently: a network failure or a missing DigiKey key on one
-    side never blocks the other.
+    side never blocks the other. The part is ``valid`` if it is in stock on *either*
+    distributor (``available_on`` lists which).
     """
     with ThreadPoolExecutor(max_workers=2) as ex:
         fj = ex.submit(check_jlcpcb, mpn, timeout)
         fd = ex.submit(check_digikey, mpn, timeout)
         jlcpcb, digikey = fj.result(), fd.result()
-    return {"mpn": mpn, "jlcpcb": jlcpcb, "digikey": digikey}
+    available_on = [n for n, src in (("jlcpcb", jlcpcb), ("digikey", digikey)) if _available(src)]
+    return {
+        "mpn": mpn,
+        "valid": bool(available_on),  # in stock on at least one distributor
+        "available_on": available_on,
+        "jlcpcb": jlcpcb,
+        "digikey": digikey,
+    }

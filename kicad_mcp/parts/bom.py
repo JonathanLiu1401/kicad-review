@@ -88,7 +88,13 @@ def check_bom(sch_path: str | Path, timeout: float = 20.0, max_workers: int = 6)
 
     def _one(info: dict) -> dict:
         res = check_stock(info["part"], timeout=timeout)
-        return {**info, "jlcpcb": res["jlcpcb"], "digikey": res["digikey"]}
+        return {
+            **info,
+            "valid": res["valid"],
+            "available_on": res["available_on"],
+            "jlcpcb": res["jlcpcb"],
+            "digikey": res["digikey"],
+        }
 
     with ThreadPoolExecutor(max_workers=max_workers) as ex:
         checked = list(ex.map(_one, uniq.values()))
