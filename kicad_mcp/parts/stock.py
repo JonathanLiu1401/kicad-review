@@ -21,6 +21,7 @@ from __future__ import annotations
 from concurrent.futures import ThreadPoolExecutor
 import json
 import os
+from pathlib import Path
 import time
 import urllib.error
 import urllib.parse
@@ -37,6 +38,15 @@ _DK_TOKEN_URL = "https://api.digikey.com/v1/oauth2/token"  # noqa: S105 - endpoi
 _DK_SEARCH_URL = "https://api.digikey.com/products/v4/search/keyword"
 
 _DK_TOKEN: dict = {"val": None, "exp": 0.0}  # cached client-credentials token
+
+# Local DigiKey credentials file (outside any repo, never committed). Read when the env
+# vars aren't set, so the key works in every process without an environment restart.
+# Override the path with KICAD_REVIEW_CREDENTIALS.
+_CREDS_FILE = Path(
+    os.environ.get(
+        "KICAD_REVIEW_CREDENTIALS", str(Path.home() / ".claude" / "kicad-review-credentials.json")
+    )
+)
 
 
 # --------------------------------------------------------------------------- #
@@ -130,7 +140,20 @@ def check_jlcpcb(query: str, timeout: float = 20.0) -> dict:
 # DigiKey (Product Information v4, OAuth2 client-credentials)
 # --------------------------------------------------------------------------- #
 def _digikey_creds() -> tuple[str | None, str | None]:
-    return os.environ.get("DIGIKEY_CLIENT_ID"), os.environ.get("DIGIKEY_CLIENT_SECRET")
+    """DigiKey (client_id, client_secret): env vars first, then the local credentials file.
+
+    The file fallback means a freshly-stored key works for every process immediately, without
+    waiting for an environment/session restart (``setx`` only reaches new process trees).
+    """
+    cid = os.environ.get("DIGIKEY_CLIENT_ID")
+    secret = os.environ.get("DIGIKEY_CLIENT_SECRET")
+    if cid and secret:
+        return cid, secret
+    try:
+        data = json.loads(_CREDS_FILE.read_text(encoding="utf-8"))
+        return data.get("DIGIKEY_CLIENT_ID") or cid, data.get("DIGIKEY_CLIENT_SECRET") or secret
+    except (OSError, ValueError):
+        return cid, secret
 
 
 def have_digikey() -> bool:

@@ -160,10 +160,12 @@ py …\lib\kicad_review_cli.py check-bom    <project>           # sweep EVERY MP
   MPN/LCSC match**: JLC's keyword search is fuzzy and returns thousands of rows for a bad query, so
   "results came back" ≠ "the part is real". `check-stock` already enforces the exact match;
   `search-parts` deliberately returns the fuzzy candidate list for discovery.
-- **DigiKey needs a free key.** It stays dark until `DIGIKEY_CLIENT_ID` + `DIGIKEY_CLIENT_SECRET`
-  env vars are set (free, 5-min self-serve registration at developer.digikey.com → an app with
-  OAuth2 client-credentials). Until then `check-stock` shows DigiKey as "not configured" and the
-  JLCPCB half still answers. Tell the user how to enable it rather than silently skipping DigiKey.
+- **DigiKey needs a free key** (5-min self-serve registration at developer.digikey.com → an app
+  with OAuth2 client-credentials). Enable it **either** by the `DIGIKEY_CLIENT_ID` +
+  `DIGIKEY_CLIENT_SECRET` env vars **or** a local JSON file at `~/.claude/kicad-review-credentials.json`
+  with those two keys (outside the repo, never committed). The **file works for every process
+  immediately**; env vars set via `setx` only reach newly-started process trees, so prefer the file.
+  Until configured, `check-stock` shows DigiKey as "not configured" and the JLCPCB half still answers.
   - **Use a *Production* app, not Sandbox** — a Sandbox key returns structurally-valid *fake*
     stock/price the code can't tell from real.
   - **Honesty note:** the JLCPCB path is verified against the live endpoint; the DigiKey path is

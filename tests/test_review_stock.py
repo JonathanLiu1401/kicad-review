@@ -149,7 +149,8 @@ def test_search_jlcpcb_logic(monkeypatch):
     assert len(hits) == 1 and hits[0]["lcsc"] == "C7593"
 
 
-def test_have_digikey_env(monkeypatch):
+def test_have_digikey_env(tmp_path, monkeypatch):
+    monkeypatch.setattr(stock, "_CREDS_FILE", tmp_path / "none.json")  # ignore any real file
     monkeypatch.delenv("DIGIKEY_CLIENT_ID", raising=False)
     monkeypatch.delenv("DIGIKEY_CLIENT_SECRET", raising=False)
     assert stock.have_digikey() is False
@@ -158,7 +159,25 @@ def test_have_digikey_env(monkeypatch):
     assert stock.have_digikey() is True
 
 
-def test_check_digikey_unconfigured(monkeypatch):
+def test_digikey_creds_from_file(tmp_path, monkeypatch):
+    # no env vars, but a credentials file -> configured (the no-restart fallback)
+    monkeypatch.delenv("DIGIKEY_CLIENT_ID", raising=False)
+    monkeypatch.delenv("DIGIKEY_CLIENT_SECRET", raising=False)
+    f = tmp_path / "creds.json"
+    f.write_text(
+        '{"DIGIKEY_CLIENT_ID": "fid", "DIGIKEY_CLIENT_SECRET": "fsecret"}', encoding="utf-8"
+    )
+    monkeypatch.setattr(stock, "_CREDS_FILE", f)
+    assert stock.have_digikey() is True
+    assert stock._digikey_creds() == ("fid", "fsecret")
+    # env vars take precedence over the file
+    monkeypatch.setenv("DIGIKEY_CLIENT_ID", "eid")
+    monkeypatch.setenv("DIGIKEY_CLIENT_SECRET", "esecret")
+    assert stock._digikey_creds() == ("eid", "esecret")
+
+
+def test_check_digikey_unconfigured(tmp_path, monkeypatch):
+    monkeypatch.setattr(stock, "_CREDS_FILE", tmp_path / "none.json")  # ignore any real file
     monkeypatch.delenv("DIGIKEY_CLIENT_ID", raising=False)
     monkeypatch.delenv("DIGIKEY_CLIENT_SECRET", raising=False)
     r = stock.check_digikey("NE555DR")

@@ -6,6 +6,12 @@ ENV/
 
 # Environment files
 .env
+.env.*
+
+# Credentials — NEVER commit (DigiKey keys etc.); the real file lives outside the repo
+*credentials*.json
+*secrets*.json
+kicad-review-credentials.json
 
 # Python cache files
 __pycache__/
