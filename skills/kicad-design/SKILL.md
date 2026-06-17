@@ -280,6 +280,26 @@ py …\lib\kicad_review_cli.py jlcpcb-apply-rules <project>     # dry run; --app
 
 (MCP: `kicad_jlcpcb_check` / `kicad_jlcpcb_apply_rules`.)
 
+## PCB layout — the boundary (do vs advise)
+
+LLMs are unreliable at spatial PCB tasks, so the tool draws a hard line and the assistant must hold it.
+
+**REFUSE + ADVISE only (never perform):** trace routing, component placement/movement, length-tuning,
+differential pairs, autorouting, drawing the board outline. For these, don't attempt an edit — explain
+the approach and constraints (impedance, return paths, clearance, thermals) and tell the user what to
+do in the KiCad GUI. This is the deliberate cutoff: spatial/judgment work stays human-driven with AI
+*advice*, not AI edits.
+
+**Deterministic, fully-specified board edits are in-bounds** (explicit net + layer + polygon, guarded
+S-expression) — e.g. defining a copper-zone/pour outline. BUT a hard headless limit, **verified
+empirically**: `kicad-cli` does **not** fill zones (it plots only cached fills), so an added zone is an
+**unfilled outline** — the user must fill it in KiCad (Edit ▸ Fill All Zones / `B`). True headless
+filling would need the KiCad GUI or the IPC API, which this tool avoids by design. So a "pour" here =
+*define the outline*; KiCad does the fill. Say that plainly; don't imply a finished pour.
+
+Net: review everything; do schematic value/footprint/property edits + clone-place; produce fab +
+JLCPCB checks; for PCB **layout**, advise — and at most define a zone outline for the user to fill.
+
 ## Scope & roadmap
 
 v0: read + review. **v1 (now): surgical Value/Footprint edits + clone-`place-like` behind a
