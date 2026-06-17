@@ -332,3 +332,29 @@ def register_review_tools(mcp: FastMCP) -> None:
         from kicad_mcp.edit.board_rules import propose_jlcpcb_rules
 
         return propose_jlcpcb_rules(_kicad.discover_project(project_path), apply=apply)
+
+    @mcp.tool()
+    @_safe
+    def kicad_add_zone(
+        project_path: str,
+        net: str,
+        layer: str,
+        x1: float,
+        y1: float,
+        x2: float,
+        y2: float,
+        apply: bool = False,
+    ) -> dict:
+        """Add a copper-zone (pour) OUTLINE to the PCB over a rectangle, for an explicit ``net`` +
+        copper ``layer``. This is a basic, fully-specified board op -- routing and component
+        placement are OUT (advice-only; see the skill).
+
+        IMPORTANT: kicad-cli CANNOT fill zones, so this writes an UNFILLED outline -- the user must
+        fill it in KiCad (Edit > Fill All Zones / 'B'). The ``net`` must exist in the board's net
+        table (clear error otherwise; use "" for the no-net zone). DRY RUN by default: returns
+        ``{net, net_num, layer, points, diff, loads_ok, applied, note}`` and does NOT touch the file;
+        the live board changes only when apply=True and the edited board still loads in kicad-cli."""
+        from kicad_mcp.edit.zones import propose_zone, rect_points
+
+        proj = _kicad.discover_project(project_path)
+        return propose_zone(proj, net, layer, rect_points(x1, y1, x2, y2), apply=apply)

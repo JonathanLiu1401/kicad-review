@@ -297,6 +297,17 @@ empirically**: `kicad-cli` does **not** fill zones (it plots only cached fills),
 filling would need the KiCad GUI or the IPC API, which this tool avoids by design. So a "pour" here =
 *define the outline*; KiCad does the fill. Say that plainly; don't imply a finished pour.
 
+The one in-bounds layout edit:
+
+```
+py …\lib\kicad_review_cli.py add-zone <project> <net> <layer> <x1> <y1> <x2> <y2>   # dry run; --apply to write
+```
+
+`add-zone` inserts a copper-zone outline for an explicit net + copper layer over a rectangle, guarded
+(the edited board must still load in kicad-cli). The net must exist in the board's net table (clear
+error otherwise; `""` = no-net zone). The result is **unfilled** — tell the user to fill it in KiCad.
+(MCP: `kicad_add_zone`.)
+
 Net: review everything; do schematic value/footprint/property edits + clone-place; produce fab +
 JLCPCB checks; for PCB **layout**, advise — and at most define a zone outline for the user to fill.
 

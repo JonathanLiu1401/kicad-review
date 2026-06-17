@@ -427,6 +427,26 @@ def cmd_jlcpcb_apply_rules(a) -> int:
     return 0
 
 
+def cmd_add_zone(a) -> int:
+    from kicad_mcp.edit.zones import propose_zone, rect_points
+
+    proj = kicad.discover_project(a.project)
+    r = propose_zone(proj, a.net, a.layer, rect_points(a.x1, a.y1, a.x2, a.y2), apply=a.apply)
+    verb = "APPLIED" if r["applied"] else "DRY RUN (not written)"
+    print(
+        f"{verb}: zone on net {a.net!r} (#{r['net_num']}) / {a.layer}, "
+        f"rect ({a.x1},{a.y1})..({a.x2},{a.y2})"
+    )
+    if not r["loads_ok"]:
+        print("WARNING: the edited board failed to load in kicad-cli — NOT applied.")
+    print(f"note: {r['note']}")
+    print("\n--- diff ---")
+    print(r["diff"] or "(no change)")
+    if not r["applied"] and r["loads_ok"]:
+        print("\nRe-run with --apply to write the zone outline to the live board.")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="kicad_review_cli", description=__doc__)
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -559,6 +579,20 @@ def build_parser() -> argparse.ArgumentParser:
     ja.add_argument("project", help="dir or .kicad_pro/.kicad_pcb")
     ja.add_argument("--apply", action="store_true", help="write to the live .kicad_pro")
     ja.set_defaults(func=cmd_jlcpcb_apply_rules)
+
+    az = sub.add_parser(
+        "add-zone",
+        help="add a copper-zone OUTLINE over a rectangle (you fill it in KiCad; dry run unless --apply)",
+    )
+    az.add_argument("project", help="dir or .kicad_pro/.kicad_pcb")
+    az.add_argument("net", help='net name for the pour, e.g. GND (use "" for no net)')
+    az.add_argument("layer", help="copper layer, e.g. B.Cu")
+    az.add_argument("x1", type=float, help="rectangle corner X1 (mm)")
+    az.add_argument("y1", type=float, help="rectangle corner Y1 (mm)")
+    az.add_argument("x2", type=float, help="rectangle corner X2 (mm)")
+    az.add_argument("y2", type=float, help="rectangle corner Y2 (mm)")
+    az.add_argument("--apply", action="store_true", help="write to the live .kicad_pcb")
+    az.set_defaults(func=cmd_add_zone)
 
     v = sub.add_parser("version", help="show kicad-cli + engine versions")
     v.set_defaults(func=cmd_version)
