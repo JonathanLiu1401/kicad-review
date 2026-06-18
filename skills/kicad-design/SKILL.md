@@ -269,14 +269,15 @@ py …\lib\kicad_review_cli.py jlcpcb-apply-rules <project>     # dry run; --app
   (`max(current, floor)`, never loosens), surgically + scoped to `design_settings.rules` (other blocks
   carry the same key names — a blind replace would hit the wrong one), under a dry-run→diff→approve→apply
   guard. Then KiCad's own DRC enforces JLCPCB limits.
-- **Stackup CHECK + reference (done); WRITE deferred.** `jlcpcb-check` compares the board's stackup
-  to JLCPCB's *published standard* (sourced from gsuberland's JLCPCB-impedance-API extraction, cited
-  in `jlcpcb.STACKUP_SOURCE`) and prints the exact reference stack to set in KiCad Board Setup. It
-  frames this as "matches / doesn't match JLCPCB's published standard," never "what JLCPCB will build"
-  (JLCPCB assigns the final stack at order). The auto-**write** is intentionally not done: a board
-  often has *no explicit stackup* to surgically update (generating one from scratch is risky), and
-  the file reflects rather than dictates JLCPCB's build. Only common configs (e.g. 4L/1.6mm) are
-  vendored; for other 4+ layer configs the check says "no reference on file" rather than guessing.
+- **Stackup CHECK + reference + WRITE.** `jlcpcb-check` compares the board's stackup to JLCPCB's
+  *published standard* (sourced from gsuberland's JLCPCB-impedance-API extraction, cited in
+  `jlcpcb.STACKUP_SOURCE`) and prints the reference stack. `jlcpcb-apply-stackup` (dry-run→diff→
+  approve→apply) **surgically** updates an EXISTING stackup's dielectric thicknesses + εr (and inner
+  copper) to JLCPCB's reference (JLC04161H-7628 for 4L/1.6mm), guarded by "the edited board still
+  loads in kicad-cli" + round-trip. It **refuses** if there's no stackup block, the layer sequence
+  doesn't match, or no reference is vendored — it never regenerates a stackup or invents dielectrics.
+  Note it sets inner copper to JLCPCB's 0.5 oz — review the diff. Framed as JLCPCB's *published
+  standard* (JLCPCB sets the final build stack at order); only common configs are vendored.
 
 (MCP: `kicad_jlcpcb_check` / `kicad_jlcpcb_apply_rules`.)
 

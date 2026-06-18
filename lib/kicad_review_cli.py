@@ -427,6 +427,28 @@ def cmd_jlcpcb_apply_rules(a) -> int:
     return 0
 
 
+def cmd_jlcpcb_apply_stackup(a) -> int:
+    from kicad_mcp.edit.board_stackup import propose_stackup
+
+    proj = kicad.discover_project(a.project)
+    r = propose_stackup(proj, apply=a.apply)
+    if not r["changes"]:
+        print(f"{proj.name}: stackup already matches JLCPCB {r['code']} — nothing to change.")
+        return 0
+    verb = "APPLIED" if r["applied"] else "DRY RUN (not written)"
+    print(f"{verb}: set stackup to JLCPCB {r['code']} ({len(r['changes'])} change(s))")
+    for c in r["changes"]:
+        print(f"  {c['layer']:<22} {c['field']}: {c['old']} -> {c['new']}")
+    if not r["loads_ok"]:
+        print("WARNING: the edited board failed to load in kicad-cli — NOT applied.")
+    print(f"\nnote: {r['note']}")
+    print("\n--- diff ---")
+    print(r["diff"])
+    if not r["applied"] and r["loads_ok"]:
+        print("\nRe-run with --apply to write the JLCPCB stackup to the live board.")
+    return 0
+
+
 def cmd_add_zone(a) -> int:
     from kicad_mcp.edit.zones import propose_zone, rect_points
 
@@ -579,6 +601,14 @@ def build_parser() -> argparse.ArgumentParser:
     ja.add_argument("project", help="dir or .kicad_pro/.kicad_pcb")
     ja.add_argument("--apply", action="store_true", help="write to the live .kicad_pro")
     ja.set_defaults(func=cmd_jlcpcb_apply_rules)
+
+    js = sub.add_parser(
+        "jlcpcb-apply-stackup",
+        help="set the board's stackup to JLCPCB's standard (dry run unless --apply)",
+    )
+    js.add_argument("project", help="dir or .kicad_pro/.kicad_pcb")
+    js.add_argument("--apply", action="store_true", help="write to the live .kicad_pcb")
+    js.set_defaults(func=cmd_jlcpcb_apply_stackup)
 
     az = sub.add_parser(
         "add-zone",

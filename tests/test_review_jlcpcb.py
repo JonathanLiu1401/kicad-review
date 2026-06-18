@@ -7,6 +7,7 @@ full board check is gated on a KiCad install + the board.
 import json
 import os
 from pathlib import Path
+import shutil
 import sys
 
 import pytest
@@ -15,8 +16,14 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 from kicad_mcp.edit.board_rules import propose_jlcpcb_rules  # noqa: E402
+from kicad_mcp.edit.board_stackup import propose_stackup  # noqa: E402
+from kicad_mcp.edit.locate import EditError  # noqa: E402
 from kicad_mcp.review import jlcpcb  # noqa: E402
 from kicad_mcp.review.kicad import Project  # noqa: E402
+
+_OLD_BOARD = Path(
+    r"C:/Users/jonny/Desktop/Trellis/driver-bms-datasheets/bms-driver-layout-old/PERIPH.kicad_pcb"
+)
 
 _BOARD = os.environ.get(
     "KICAD_REVIEW_TEST_PROJECT", r"C:/Users/jonny/Desktop/Trellis/In-Pipe-Hardware/v0/PERIPH"
@@ -172,6 +179,86 @@ def test_stackup_mismatch_detected(tmp_path):
     layers = jlcpcb.parse_board_stackup(pcb)
     mismatch = jlcpcb._stackup_dielectric_mismatch(layers, jlcpcb.STACKUPS[(4, 1.6)])
     assert mismatch and any("prepreg" in m for m in mismatch)
+
+
+# --------------------------------------------------------------------------- #
+# stackup WRITE (hermetic: parse_board + kicad-cli mocked)
+# --------------------------------------------------------------------------- #
+_STACKUP_GENERIC = (  # KiCad's generic 4-layer default -- NOT JLCPCB's stack
+    "(kicad_pcb\n  (setup\n    (stackup\n"
+    '      (layer "F.Cu" (type "copper") (thickness 0.035))\n'
+    '      (layer "dielectric 1" (type "prepreg") (thickness 0.1) (epsilon_r 4.5))\n'
+    '      (layer "In1.Cu" (type "copper") (thickness 0.035))\n'
+    '      (layer "dielectric 2" (type "core") (thickness 1.24) (epsilon_r 4.5))\n'
+    '      (layer "In2.Cu" (type "copper") (thickness 0.035))\n'
+    '      (layer "dielectric 3" (type "prepreg") (thickness 0.1) (epsilon_r 4.5))\n'
+    '      (layer "B.Cu" (type "copper") (thickness 0.035))\n'
+    "    )\n  )\n)\n"
+)
+
+
+def _fake_4layer(monkeypatch):
+    from kicad_mcp.edit import board_stackup
+
+    class _B:
+        copper_layers = 4
+        copper_oz = 1.0
+
+    monkeypatch.setattr(board_stackup, "parse_board", lambda p: _B())
+    monkeypatch.setattr(board_stackup.jlcpcb, "board_thickness_mm", lambda p: 1.6)
+    monkeypatch.setattr(board_stackup, "_loads_ok", lambda p: True)
+
+
+def test_propose_stackup_updates_to_jlcpcb(tmp_path, monkeypatch):
+    _fake_4layer(monkeypatch)
+    pcb = tmp_path / "b.kicad_pcb"
+    pcb.write_text(_STACKUP_GENERIC, encoding="utf-8")
+    proj = Project(name="b", dir=tmp_path, pro=None, sch=None, pcb=pcb)
+
+    r = propose_stackup(proj, apply=False)
+    assert r["code"] == "JLC04161H-7628"
+    assert len(r["changes"]) == 8  # 3 dielectric thickness + 2 epsilon_r + ... + 2 inner copper
+    assert pcb.read_text(encoding="utf-8") == _STACKUP_GENERIC  # dry run untouched
+
+    r2 = propose_stackup(proj, apply=True)
+    assert r2["applied"] is True
+    di = [
+        layer for layer in jlcpcb.parse_board_stackup(pcb) if layer["type"] in ("prepreg", "core")
+    ]
+    assert [layer["thickness"] for layer in di] == [0.2104, 1.065, 0.2104]
+    assert [layer["epsilon_r"] for layer in di] == [4.4, 4.43, 4.4]
+
+
+def test_propose_stackup_noop_when_already_correct(tmp_path, monkeypatch):
+    _fake_4layer(monkeypatch)
+    pcb = tmp_path / "b.kicad_pcb"
+    pcb.write_text(_STACKUP_PCB, encoding="utf-8")  # already the JLCPCB stack
+    proj = Project(name="b", dir=tmp_path, pro=None, sch=None, pcb=pcb)
+    r = propose_stackup(proj, apply=True)
+    assert r["changes"] == [] and r["applied"] is False
+
+
+def test_propose_stackup_no_stackup_block_raises(tmp_path, monkeypatch):
+    _fake_4layer(monkeypatch)
+    pcb = tmp_path / "b.kicad_pcb"
+    pcb.write_text("(kicad_pcb\n  (setup)\n)\n", encoding="utf-8")
+    proj = Project(name="b", dir=tmp_path, pro=None, sch=None, pcb=pcb)
+    with pytest.raises(EditError):
+        propose_stackup(proj)
+
+
+@pytest.mark.skipif(
+    not _OLD_BOARD.exists() or not _have_cli(), reason="needs the stable old board + kicad-cli"
+)
+def test_propose_stackup_on_stable_old_board(tmp_path):
+    from kicad_mcp.review import kicad
+
+    dst = tmp_path / "PERIPH.kicad_pcb"
+    shutil.copy(_OLD_BOARD, dst)
+    proj = kicad.discover_project(dst)
+    r = propose_stackup(proj, apply=False)  # the old board's generic stack differs from JLCPCB
+    assert r["loads_ok"] is True
+    assert r["changes"] and r["code"] == "JLC04161H-7628"
 
 
 # --------------------------------------------------------------------------- #

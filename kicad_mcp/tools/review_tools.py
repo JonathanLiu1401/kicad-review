@@ -335,6 +335,21 @@ def register_review_tools(mcp: FastMCP) -> None:
 
     @mcp.tool()
     @_safe
+    def kicad_jlcpcb_apply_stackup(project_path: str, apply: bool = False) -> dict:
+        """Set the board's stackup dielectric thicknesses + epsilon_r to JLCPCB's published standard
+        (JLC04161H-7628 for 4-layer/1.6 mm) so KiCad's impedance matches JLCPCB's build. Surgically
+        updates the EXISTING stackup -- refuses if the layer sequence doesn't match the reference, if
+        there's no stackup block, or if no reference is vendored for the config. DRY RUN by default:
+        returns ``{code, changes, diff, loads_ok, applied, note}`` and does NOT touch the file; writes
+        only when apply=True, the edited board still loads in kicad-cli, and there is a change to make.
+        Note it also sets inner copper to JLCPCB's 0.5 oz; review the diff. JLCPCB assigns the final
+        build stack at order -- this aligns the file with their standard, mainly for impedance."""
+        from kicad_mcp.edit.board_stackup import propose_stackup
+
+        return propose_stackup(_kicad.discover_project(project_path), apply=apply)
+
+    @mcp.tool()
+    @_safe
     def kicad_add_zone(
         project_path: str,
         net: str,
