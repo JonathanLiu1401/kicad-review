@@ -51,9 +51,9 @@ dependencies = [
 ]
 
 [project.urls]
-"Homepage" = "https://github.com/lamaalrajih/kicad-mcp"
-"Bug Tracker" = "https://github.com/lamaalrajih/kicad-mcp/issues"
-"Documentation" = "https://github.com/lamaalrajih/kicad-mcp#readme"
+"Homepage" = "https://github.com/JonathanLiu1401/eda-review"
+"Bug Tracker" = "https://github.com/JonathanLiu1401/eda-review/issues"
+"Documentation" = "https://github.com/JonathanLiu1401/eda-review#readme"
 
 [project.scripts]
 kicad-mcp = "kicad_mcp.server:main"

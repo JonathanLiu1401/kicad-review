@@ -1,321 +1,167 @@
-# eda-review — KiCad + Altium design review
+# eda-review
 
-> **This fork ("eda-review") is a review-first PCB tool that spans more than one EDA.** On top of
-> the upstream KiCad MCP server it adds: a deterministic engineering-check / review engine, distributor
-> **BOM sourcing** (DigiKey + JLCPCB stock/validity), **JLCPCB manufacturability + stackup** checks
-> against authoritative data, guarded human-approved edits on the KiCad side (copper zones, design
-> rules, stackup), and an **Altium Designer** backend that drives the [eda-agent](https://github.com/salitronic/eda-agent)
-> live bridge (see [`docs/altium_eda_agent_setup.md`](docs/altium_eda_agent_setup.md) and the
-> [feasibility spec](docs/superpowers/specs/2026-06-22-altium-support-feasibility.md)). Routing and
-> placement are **advice-only** on every backend — LLMs review well and build badly.
->
-> The shared, EDA-neutral logic lives in `eda_core/`; the Altium backend in `altium_review/`; the
-> KiCad backend in `kicad_mcp/`. The sections below are the upstream KiCad MCP setup guide.
+AI-assisted EDA review for PCB teams that need more than a chat bot looking at screenshots.
 
-This guide will help you set up a Model Context Protocol (MCP) server for KiCad. While the examples in this guide often reference Claude Desktop, the server is compatible with **any MCP-compliant client**. You can use it with Claude Desktop, your own custom MCP clients, or any other application that implements the Model Context Protocol.
+`eda-review` gives an agent structured access to the schematic, PCB layout, BOM, design rules,
+stackup, rendered board views, and manufacturing outputs. It started as a fork of
+[`lamaalrajih/kicad-mcp`](https://github.com/lamaalrajih/kicad-mcp), then grew into a
+review-first toolchain for KiCad and Altium boards.
 
-## Table of Contents
+The goal is practical: catch electrical, layout, BOM, and fabrication problems before an order
+goes to the manufacturer.
 
-- [Prerequisites](#prerequisites)
-- [Installation Steps](#installation-steps)
-- [Understanding MCP Components](#understanding-mcp-components)
-- [Feature Highlights](#feature-highlights)
-- [Natural Language Interaction](#natural-language-interaction)
-- [Documentation](#documentation)
-- [Configuration](#configuration)
-- [Development Guide](#development-guide)
-- [Troubleshooting](#troubleshooting)
-- [Contributing](#contributing)
-- [Future Development Ideas](#future-development-ideas)
-- [License](#license)
+## What eda-review can do
 
-## Prerequisites
+- **Understand schematics and layouts together.** Inspect projects, export netlists, compare
+  schematic-to-PCB parity, run ERC/DRC, and render schematic, board, copper, and 3D views for
+  visual review.
+- **Manage BOM risk.** Extract MPNs from designs, group references, flag missing or placeholder
+  part data, check JLCPCB/LCSC and DigiKey availability, and search JLCPCB alternatives.
+- **Review for manufacturing.** Check board geometry, configured rules, stackup, via limits, and
+  copper constraints against JLCPCB-focused capabilities. Run fab readiness checks before handoff.
+- **Generate handoff files.** Export Gerbers, drill files, pick-and-place/CPL data, and STEP from
+  KiCad through official KiCad export paths.
+- **Support KiCad and Altium workflows.** KiCad support is direct through `kicad-cli` and project
+  files. Altium support uses the `eda-agent` bridge to turn live Altium data into the same shared
+  review pipeline.
+- **Keep edits guarded.** Deterministic edits use dry-run diffs first, require explicit `--apply`,
+  and re-check loadability or rules where the backend supports it.
 
-- macOS, Windows, or Linux
-- Python 3.10 or higher
-- KiCad 9.0 or higher
-- uv 0.8.0 or higher
-- Claude Desktop (or another MCP client)
+## Why this exists
 
-## Installation Steps
+LLMs are useful reviewers when they have evidence. They are risky when they guess.
 
-### 1. Set Up Your Python Environment
+`eda-review` puts deterministic tooling in front of the agent:
 
-First, let's install dependencies and set up our environment:
+- KiCad CLI output for ERC, DRC, rendering, netlists, BOMs, and fab exports.
+- Parsed schematic and PCB facts for rule checks and layout reasoning.
+- Distributor data for live sourcing and stock validation.
+- EDA-neutral manufacturing facts that both KiCad and Altium backends can feed.
+- Rendered images the agent can actually inspect before commenting on placement, routing, copper
+  pours, silkscreen, assembly orientation, or 3D seating.
 
-```bash
-# Clone the repository
-git clone https://github.com/lamaalrajih/kicad-mcp.git
-cd kicad-mcp
+The result is a review workflow that can talk about the board from both sides: what the schematic
+intends and what the physical layout will send to a fab.
 
-# Install dependencies – `uv` will create a `.venv/` folder automatically
-# (Install `uv` first: `brew install uv` on macOS or `pipx install uv`)
-make install
+## Backend support
 
-# Optional: activate the environment for manual commands
-source .venv/bin/activate
+| Backend     | Status              | What it covers                                                                                                                         |
+| ----------- | ------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| KiCad       | Primary path        | `.kicad_pro`, `.kicad_sch`, `.kicad_pcb`, ERC/DRC, netlist, rendered review, BOM checks, JLCPCB DFM checks, guarded edits, fab exports |
+| Altium      | Experimental bridge | Live Altium data through `eda-agent`, BOM sourcing, rule/stackup/geometry normalization, JLCPCB manufacturability grading              |
+| Shared core | Stable foundation   | Distributor stock checks, BOM sourcing sweeps, JLCPCB capability grading, EDA-neutral board facts                                      |
+
+Altium support depends on a running Altium session and the third-party
+[`eda-agent`](https://github.com/salitronic/eda-agent) MCP bridge. Before trusting an Altium review,
+run the setup spike in [docs/altium_eda_agent_setup.md](docs/altium_eda_agent_setup.md) so the
+bridge output is confirmed against your Altium version.
+
+## Quick start
+
+Install KiCad 9 or newer, then install the Python dependencies:
+
+```powershell
+git clone https://github.com/JonathanLiu1401/eda-review.git
+cd eda-review
+py -m pip install -r requirements.txt
 ```
 
-### 2. Configure Your Environment
+KiCad ships `kicad-cli`. If it is not on your `PATH`, set `KICAD_CLI_PATH` to the full executable
+path.
 
-Create a `.env` file to customize where the server looks for your KiCad projects:
+Run a review:
 
-```bash
-# Copy the example environment file
-cp .env.example .env
-
-# Edit the .env file
-vim .env
+```powershell
+py lib\kicad_review_cli.py inspect C:\path\to\board\board.kicad_pro
+py lib\kicad_review_cli.py review  C:\path\to\board\board.kicad_pro --scope all
+py lib\kicad_review_cli.py erc     C:\path\to\board\board.kicad_pro
+py lib\kicad_review_cli.py drc     C:\path\to\board\board.kicad_pro
+py lib\kicad_review_cli.py render  C:\path\to\board\board.kicad_pro --what all
 ```
 
-In the `.env` file, add your custom project directories:
+Run BOM and manufacturing checks:
 
-```
-# Add paths to your KiCad projects (comma-separated)
-KICAD_SEARCH_PATHS=~/pcb,~/Electronics,~/Projects/KiCad
-```
-
-### 3. Run the Server
-
-Once the environment is set up, you can run the server:
-
-```bash
-python main.py
+```powershell
+py lib\kicad_review_cli.py check-bom     C:\path\to\board\board.kicad_pro
+py lib\kicad_review_cli.py check-stock   RC0603FR-0710KL
+py lib\kicad_review_cli.py search-parts  "10k 0603 resistor"
+py lib\kicad_review_cli.py jlcpcb-check  C:\path\to\board\board.kicad_pro
+py lib\kicad_review_cli.py fab-check     C:\path\to\board\board.kicad_pro
+py lib\kicad_review_cli.py fab-export    C:\path\to\board\board.kicad_pro --out C:\path\to\fab
 ```
 
-### 4. Configure an MCP Client
+`review` writes an evidence package under the board's `.kicad-review/` directory, including a
+Markdown report, JSON facts, and render paths for the agent to inspect.
 
-Now, let's configure Claude Desktop to use our MCP server:
+## Main CLI commands
 
-1. Create or edit the Claude Desktop configuration file:
+| Command                | Purpose                                                                                |
+| ---------------------- | -------------------------------------------------------------------------------------- |
+| `inspect`              | Summarize project files, board layers, track widths, vias, footprints, and net classes |
+| `review`               | Run the full evidence-building review workflow                                         |
+| `erc` / `drc`          | Run KiCad electrical and design rule checks and summarize violations                   |
+| `render`               | Export schematic, board, copper, and 3D views                                          |
+| `netlist`              | Export a KiCad netlist                                                                 |
+| `check-bom`            | Check every MPN in the schematic BOM against JLCPCB/LCSC and DigiKey                   |
+| `check-stock`          | Check one part number or LCSC code for live availability                               |
+| `search-parts`         | Search JLCPCB/LCSC for stock-ranked candidate parts                                    |
+| `jlcpcb-check`         | Compare the board against JLCPCB-focused capability and stackup checks                 |
+| `jlcpcb-apply-rules`   | Dry-run or apply JLCPCB minimum design rules to a KiCad project                        |
+| `jlcpcb-apply-stackup` | Dry-run or apply a JLCPCB reference stackup to a KiCad PCB                             |
+| `fab-check`            | Check fabrication readiness and produce a fab package for inspection                   |
+| `fab-export`           | Export Gerbers, drill, pick-and-place, and STEP files                                  |
+| `set-property`         | Dry-run or apply a targeted component property change, such as an MPN update           |
 
-```bash
-# Create the directory if it doesn't exist
-mkdir -p ~/Library/Application\ Support/Claude
+## Use as an MCP server
 
-# Edit the configuration file
-vim ~/Library/Application\ Support/Claude/claude_desktop_config.json
+The CLI is the most reliable path for automated review, but the repo still includes the upstream
+MCP server interface. Register it with an MCP-capable client:
+
+```powershell
+claude mcp add kicad -- py C:\path\to\eda-review\main.py
 ```
 
-2. Add the KiCad MCP server to the configuration:
+This exposes KiCad project, schematic, PCB, DRC, BOM, rendering, and review tools through MCP.
 
-```json
-{
-    "mcpServers": {
-        "kicad": {
-            "command": "/ABSOLUTE/PATH/TO/YOUR/PROJECT/kicad-mcp/.venv/bin/python",
-            "args": [
-                "/ABSOLUTE/PATH/TO/YOUR/PROJECT/kicad-mcp/main.py"
-            ]
-        }
-    }
-}
+## Repository layout
+
+```text
+eda-review/
+  eda_core/       Shared BOM, stock, JLCPCB, and board-fact logic
+  kicad_mcp/      KiCad backend, MCP server, parsing, review, edit, and fab code
+  altium_review/  Altium adapter and shared review entry points
+  lib/            CLI entry point used by agents and CI
+  skills/         Agent workflow instructions for KiCad and Altium design review
+  commands/       Claude Code command wrappers
+  docs/           Setup notes, design notes, and Altium bridge guidance
+  tests/          Unit and integration coverage for review, BOM, DFM, fab, and edits
 ```
 
-Replace `/ABSOLUTE/PATH/TO/YOUR/PROJECT/kicad-mcp` with the actual path to your project directory.
+## Development
 
-### 5. Restart Your MCP Client
+Install the test dependency, then run the suite:
 
-Close and reopen your MCP client to load the new configuration.
-
-## Understanding MCP Components
-
-The Model Context Protocol (MCP) defines three primary ways to provide capabilities:
-
-### Resources vs Tools vs Prompts
-
-**Resources** are read-only data sources that LLMs can reference:
-- Similar to GET endpoints in REST APIs
-- Provide data without performing significant computation
-- Used when the LLM needs to read information
-- Typically accessed programmatically by the client application
-- Example: `kicad://projects` returns a list of all KiCad projects
-
-**Tools** are functions that perform actions or computations:
-- Similar to POST/PUT endpoints in REST APIs
-- Can have side effects (like opening applications or generating files)
-- Used when the LLM needs to perform actions in the world
-- Typically invoked directly by the LLM (with user approval)
-- Example: `open_project()` launches KiCad with a specific project
-
-**Prompts** are reusable templates for common interactions:
-- Pre-defined conversation starters or instructions
-- Help users articulate common questions or tasks
-- Invoked by user choice (typically from a menu)
-- Example: The `debug_pcb_issues` prompt helps users troubleshoot PCB problems
-
-For more information on resources vs tools vs prompts, read the [MCP docs](https://modelcontextprotocol.io/docs/concepts/architecture).
-
-## Feature Highlights
-
-The KiCad MCP Server provides several key features, each with detailed documentation:
-
-- **Project Management**: List, examine, and open KiCad projects
-  - *Example:* "Show me all my recent KiCad projects" → Lists all projects sorted by modification date
-  
-- **PCB Design Analysis**: Get insights about your PCB designs and schematics
-  - *Example:* "Analyze the component density of my temperature sensor board" → Provides component spacing analysis
-  
-- **Netlist Extraction**: Extract and analyze component connections from schematics
-  - *Example:* "What components are connected to the MCU in my Arduino shield?" → Shows all connections to the microcontroller
-  
-- **BOM Management**: Analyze and export Bills of Materials
-  - *Example:* "Generate a BOM for my smart watch project" → Creates a detailed bill of materials
-  
-  - **Design Rule Checking**: Run DRC checks using the KiCad CLI and track your progress over time
-  - *Example:* "Run DRC on my power supply board and compare to last week" → Shows progress in fixing violations
-
-- **PCB Visualization**: Generate visual representations of your PCB layouts
-  - *Example:* "Show me a thumbnail of my audio amplifier PCB" → Displays a visual render of the board
-  
-- **Circuit Pattern Recognition**: Automatically identify common circuit patterns in your schematics
-  - *Example:* "What power supply topologies am I using in my IoT device?" → Identifies buck, boost, or linear regulators
-
-For more examples and details on each feature, see the dedicated guides in the documentation. You can also ask the LLM what tools it has access to!
-
-## Natural Language Interaction
-
-While our documentation often shows examples like:
-
-```
-Show me the DRC report for /Users/username/Documents/KiCad/my_project/my_project.kicad_pro
+```powershell
+py -m pip install pytest
+py -m pytest -q
 ```
 
-You don't need to type the full path to your files! The LLM can understand more natural language requests.
+Some integration tests need KiCad and a real project path. The unit tests cover the shared
+manufacturing logic, distributor normalization, Altium adapter, report model, and guarded edits
+without requiring KiCad or Altium.
 
-For example, instead of the formal command above, you can simply ask:
+## Safety model
 
-```
-Can you check if there are any design rule violations in my Arduino shield project?
-```
+`eda-review` is intentionally conservative:
 
-Or:
-
-```
-I'm working on the temperature sensor circuit. Can you identify what patterns it uses?
-```
-
-The LLM will understand your intent and request the relevant information from the KiCad MCP Server. If it needs clarification about which project you're referring to, it will ask.
-
-## Documentation
-
-Detailed documentation for each feature is available in the `docs/` directory:
-
-- [Project Management](docs/project_guide.md)
-- [PCB Design Analysis](docs/analysis_guide.md)
-- [Netlist Extraction](docs/netlist_guide.md)
-- [Bill of Materials (BOM)](docs/bom_guide.md)
-- [Design Rule Checking (DRC)](docs/drc_guide.md)
-- [PCB Visualization](docs/thumbnail_guide.md)
-- [Circuit Pattern Recognition](docs/pattern_guide.md)
-- [Prompt Templates](docs/prompt_guide.md)
-
-## Configuration
-
-The KiCad MCP Server can be configured using environment variables or a `.env` file:
-
-### Key Configuration Options
-| Environment Variable | Description | Example |
-|---------------------|-------------|---------|
-| `KICAD_SEARCH_PATHS` | Comma-separated list of directories to search for KiCad projects | `~/pcb,~/Electronics,~/Projects` |
-| `KICAD_USER_DIR` | Override the default KiCad user directory | `~/Documents/KiCadProjects` |
-| `KICAD_APP_PATH` | Override the default KiCad application path | `/Applications/KiCad7/KiCad.app` |
-
-See [Configuration Guide](docs/configuration.md) for more details.
-
-## Development Guide
-
-### Project Structure
-
-The KiCad MCP Server is organized into a modular structure:
-
-```
-kicad-mcp/
-├── README.md                       # Project documentation
-├── main.py                         # Entry point that runs the server
-├── requirements.txt                # Python dependencies
-├── .env.example                    # Example environment configuration
-├── kicad_mcp/                      # Main package directory
-│   ├── __init__.py
-│   ├── server.py                   # MCP server setup
-│   ├── config.py                   # Configuration constants and settings
-│   ├── context.py                  # Lifespan management and shared context
-│   ├── resources/                  # Resource handlers
-│   ├── tools/                      # Tool handlers
-│   ├── prompts/                    # Prompt templates
-│   └── utils/                      # Utility functions
-├── docs/                           # Documentation
-└── tests/                          # Unit tests
-```
-
-### Adding New Features
-
-To add new features to the KiCad MCP Server, follow these steps:
-
-1. Identify the category for your feature (resource, tool, or prompt)
-2. Add your implementation to the appropriate module
-3. Register your feature in the corresponding register function
-4. Test your changes with the development tools
-
-See [Development Guide](docs/development.md) for more details.
-
-## Troubleshooting
-
-If you encounter issues:
-
-1. **Server Not Appearing in MCP Client:**
-   - Check your client's configuration file for errors
-   - Make sure the path to your project and Python interpreter is correct
-   - Ensure Python can access the `mcp` package
-   - Check if your KiCad installation is detected
-
-2. **Server Errors:**
-   - Check the terminal output when running the server in development mode
-   - Check Claude logs at:
-     - `~/Library/Logs/Claude/mcp-server-kicad.log` (server-specific logs)
-     - `~/Library/Logs/Claude/mcp.log` (general MCP logs)
-
-3. **Working Directory Issues:**
-   - The working directory for servers launched via client configs may be undefined
-   - Always use absolute paths in your configuration and .env files
-   - For testing servers via command line, the working directory will be where you run the command
-
-See [Troubleshooting Guide](docs/troubleshooting.md) for more details.
-
-If you're still not able to troubleshoot, please open a Github issue. 
-
-## Contributing
-
-Want to contribute to the KiCad MCP Server? Here's how you can help improve this project:
-
-1. Fork the repository
-2. Create a feature branch
-3. Add your changes
-4. Submit a pull request
-
-Key areas for contribution:
-- Adding support for more component patterns in the Circuit Pattern Recognition system
-- Improving documentation and examples
-- Adding new features or enhancing existing ones
-- Fixing bugs and improving error handling
-
-See [CONTRIBUTING.md](CONTRIBUTING.md) for detailed contribution guidelines.
-
-## Future Development Ideas
-
-Interested in contributing? Here are some ideas for future development:
-
-1. **3D Model Visualization** - Implement tools to visualize 3D models of PCBs
-2. **PCB Review Tools** - Create annotation features for design reviews
-3. **Manufacturing File Generation** - Add support for generating Gerber files and other manufacturing outputs
-4. **Component Search** - Implement search functionality for components across KiCad libraries
-5. **BOM Enhancement** - Add supplier integration for component sourcing and pricing
-6. **Interactive Design Checks** - Develop interactive tools for checking design quality
-7. **Web UI** - Create a simple web interface for configuration and monitoring
-8. **Circuit Analysis** - Add automated circuit analysis features
-9. **Test Coverage** - Improve test coverage across the codebase
-10. **Circuit Pattern Recognition** - Expand the pattern database with more component types and circuit topologies
+- Use official EDA export/check functions when they exist.
+- Treat KiCad and Altium project files as the ground truth.
+- Prefer dry-run diffs before edits.
+- Keep routing and placement as review guidance unless a deterministic backend operation is
+  explicitly requested.
+- Verify generated fab files before treating them as manufacturing-ready.
 
 ## License
 
-This project is open source under the MIT license.
+MIT. This project builds on the MIT-licensed KiCad MCP work by
+[`lamaalrajih/kicad-mcp`](https://github.com/lamaalrajih/kicad-mcp).
