@@ -248,6 +248,96 @@ py …\lib\kicad_review_cli.py fab-check  <project>   # READY? (DRC + board outl
 missing outline) — a board with DRC errors is commonly rejected or fabbed with defects, so don't call a
 board "done" until `fab-check` is clean. (MCP: `kicad_fab_export` / `kicad_fab_check`.)
 
+### JLCPCB fab/PCBA handoff files
+
+When preparing a JLCPCB upload folder from `fab-check` output, do not copy every plotted layer blindly.
+Use only the PCB fabrication layers plus assembly handoff files:
+
+- Board fab: `F_Cu`, inner copper layers, `B_Cu`, front/back mask, front/back paste, front/back silk,
+  `Edge_Cuts`, and the Excellon drill file.
+- Assembly: BOM, STEP, and a JLC-compatible CPL/pick-and-place CSV.
+- Exclude auxiliary review layers from the PCB upload zip unless explicitly requested by the fab:
+  courtyard, fab drawing, adhesive, margin, user, comments, and eco layers.
+- Omit `.gbrjob` from a trimmed JLC handoff folder unless it has been sanitized to reference only
+  the files actually shipped; KiCad's generated job file may still list excluded auxiliary layers.
+
+Default to KiCad's official export functions for all fab and assembly files. Do not hand-edit
+Gerbers, drill files, BOMs, or CPLs except as a last resort: LLMs are not reliable at
+detail-oriented manufacturing file edits. Prefer `kicad-cli` export commands and KiCad's own
+grouping/filtering options:
+
+```
+kicad-cli sch export bom --output <bom.csv> --fields Value,Reference,Footprint,"JLCPCB Part #" --labels Comment,Designator,Footprint,"JLCPCB Part #" --group-by "JLCPCB Part #",Footprint --ref-range-delimiter= --exclude-dnp <project>.kicad_sch
+
+kicad-cli pcb export pos --output <pos.csv> --side both --format csv --units mm --exclude-dnp <project>.kicad_pcb
+```
+
+The preferred long-term JLC flow is to store exact `JLCPCB Part #` / `LCSC Part #` C-codes in
+the schematic Symbol Fields Table, then let KiCad export them. If the schematic does not yet have
+that field, use KiCad's official grouped BOM export as the source of truth and only then apply a
+small deterministic post-process for the unavoidable JLC gap (for example mapping verified MPNs to
+exact C-codes, or renaming KiCad's fixed CPL headers). Write such scripts only when necessary, keep
+them narrow, and test them before trusting the generated files: row counts, expanded designator set
+equality between BOM and CPL, no ranges, no duplicate refs, no duplicate JLC C-code rows that would
+make JLC mark rows `Unconfirmed`, ASCII/CSV parsing, and a spot-check against JLC's downloaded
+assembly-order spreadsheet when available. Never manually rewrite rows by inspection when a KiCad
+export option or tested script can do it.
+
+For JLC assembly, make the BOM and CPL designator sets identical before upload. JLCPCB does not
+reliably expand KiCad BOM ranges such as `C1-C3` or `R25-R29`; export the BOM with
+`--ref-range-delimiter=` so every assembled ref appears explicitly. Validate:
+
+- no designators in the BOM but absent from the CPL;
+- no designators in the CPL but absent from the BOM;
+- no duplicate designators;
+- no range-compressed BOM designators containing `-`.
+
+Filter mechanical/non-assembled refs (mounting holes, no-MPN headers, test fixtures, no-BOM items)
+out of the CPL unless they are intentionally listed in the BOM and selected for assembly. In a
+single release folder, avoid keeping duplicate alias files with identical content (for example both
+`*-BOM.csv` and `*-BOM-JLCPCB.csv`, or both `*-pos.csv` and `*-CPL-JLCPCB.csv`) unless the user
+explicitly asks for both; one clear BOM file and one clear CPL file reduces upload mistakes.
+
+For the JLC BOM itself, prefer the official columns:
+
+```
+Comment,Designator,Footprint,JLCPCB Part #
+```
+
+`Comment` may be the value/spec, but `JLCPCB Part #` must be populated with the exact LCSC/JLC
+`Cxxxxx` code whenever the part should be assembled from JLC stock. Use `check-stock` / `check-bom`
+to find exact JLC matches and stock. A BOM that merely has manufacturer MPN/vendor columns can parse
+but still produce JLC matching rows like `No matches`, `Unconfirmed`, zero `Qty`, or blank
+`JLCPCB Part #` in the downloaded assembly-order spreadsheet. Treat those as not production-ready
+until fixed or consciously accepted. If an exact JLC part has zero stock or less stock than the
+assembly-order row requires, do not hide it in the files: either substitute a verified equivalent
+JLC part with matching value/package/tolerance/power/voltage specs and enough stock, exclude that ref
+from both BOM and CPL because it is intentionally hand-soldered/consigned, or keep it and tell the
+user it needs Global Sourcing, pre-order, or consigned stock.
+
+KiCad's raw position export may use headers like `Ref,Val,Package,PosX,PosY,Rot,Side`. JLCPCB can reject
+that as "Failed processing the CPL file". Before giving a CPL to JLCPCB, normalize it to ASCII CSV with
+exact columns:
+
+```
+Designator,Mid X,Mid Y,Rotation,Layer
+```
+
+Map `Ref -> Designator`, `PosX -> Mid X`, `PosY -> Mid Y`, `Rot -> Rotation`, and `Side -> Layer`.
+Use one file for both sides, with `Top`/`Bottom` layer values. Keep coordinates in millimeters and do
+not alter the coordinate origin unless the Gerbers and drill files are regenerated with the same origin.
+Prefer a clearly named file such as `*-CPL-JLCPCB.csv`; if the user asks for a single release folder,
+replace the raw `*-pos.csv` there with the JLC-normalized CPL to avoid uploading the wrong file.
+
+JLC/EasyEDA component rotations are part-specific. A CPL can parse successfully while the JLC 3D
+preview shows polarized parts rotated incorrectly. Keep KiCad's official position export as the source,
+then apply only deterministic rotation overrides that are backed by exact JLC/LCSC C-code package data
+or by the JLC placement preview. Derive offsets by comparing the KiCad footprint pad/pin-1 orientation
+against the EasyEDA/JLC component definition for the same C-code; do not apply broad package regexes
+blindly when a project uses custom footprints. After applying overrides, validate that coordinates,
+layers, and designator sets still match the official KiCad export and that only the intended `Rotation`
+cells changed. Re-upload and inspect JLC's placement preview before approving production.
+
 ## JLCPCB manufacturability — check against authoritative limits (+ apply rules)
 
 If the board is made/assembled at **JLCPCB**, the DRC must match *their* real capabilities, not
